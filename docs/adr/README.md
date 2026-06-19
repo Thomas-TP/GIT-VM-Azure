@@ -11,6 +11,7 @@ Chaque ADR répond à « nous avons choisi X plutôt que Y parce que… » (exig
 | [0004](0004-cycle-de-vie-reconciliateur.md) | Cycle de vie (dates, auto-destroy) via le réconciliateur cron | ✅ Acté |
 | [0005](0005-roles-et-demande-groupee.md) | Rôle formateur + demande groupée par `group_id` | ✅ Acté |
 | [0006](0006-gestion-des-secrets.md) | Secrets : Wrangler Secrets + chiffrement AES-GCM au repos | ✅ Acté |
+| [0007](0007-catalogue-os-et-windows-rdp.md) | Catalogue d'OS élargi (AMIs vérifiés) + support Windows (RDP) | ✅ Acté |
 
 > Convention : un ADR n'est jamais réécrit une fois acté ; s'il est remis en cause, on crée un
 > nouvel ADR qui le « supersède ».

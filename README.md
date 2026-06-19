@@ -1,76 +1,118 @@
-# GIT VM Portal
+<div align="center">
 
-Self-service portal that lets organization members request **AWS EC2 virtual machines**,
-have an admin approve them, and get SSH access automatically — built end-to-end on
-**Cloudflare Workers**.
+# 🖥️ GIT VM Portal
 
-> Projet scolaire — Satom IT Learning Solutions · Thomas P. & Abderahmane
+**Plateforme self-service de provisioning de machines virtuelles**
+SSO Microsoft → demande → validation → VM AWS EC2 automatique → arrêt à l'échéance.
+Le tout sur **Cloudflare Workers**.
 
-## ✨ Features
+[![CI](https://github.com/Thomas-TP/GIT-VM/actions/workflows/ci.yml/badge.svg)](https://github.com/Thomas-TP/GIT-VM/actions/workflows/ci.yml)
+&nbsp;·&nbsp; **Prod** : <https://git-vm-portal.thomas-prudhomme.workers.dev>
 
-- 🔐 **SSO Microsoft Entra ID** (OIDC, in-Worker, no password stored)
-- 🖥️ **Self-service VM requests** from a preset catalog (CPU/RAM)
-- ✅ **Admin approval workflow** with notifications
-- ⚙️ **Automatic EC2 provisioning** (unique SSH key per VM, public IP, SSH security group)
-- 📧 **Transactional emails** (EmailJS) at each step
-- 🔑 **Per-VM SSH key**, AES-GCM encrypted at rest, downloadable only by the owner
-- 🗑️ **Lifecycle management** — terminate (delete instance + key)
-- 🌗 **Light / dark theme**, 🌐 **FR / EN**
-- 📊 **Admin dashboard** — stats, filter, approve / reject
+</div>
+
+> Hackathon **Satom IT & Learning Solutions × Geneva Institute of Technology (GIT)** — juin 2026.
+> Binôme : Thomas P. & Abderahmane.
+
+---
+
+## ✨ Fonctionnalités
+
+- 🔐 **SSO Microsoft Entra ID** (OIDC authorization-code, in-Worker, aucun mot de passe stocké).
+- 🖥️ **Demande de VM en libre-service** depuis un catalogue : **performance × stockage × OS**.
+- 🐧 **6 systèmes** : Ubuntu 24.04, Debian 12, Amazon Linux 2023, Rocky Linux 9, AlmaLinux 9,
+  **Windows Server 2022**.
+- ✅ **Workflow de validation** (admin approuve/refuse) avec **notifications email**.
+- ⚙️ **Provisioning AWS EC2 automatique** et idempotent via un **réconciliateur** cron.
+- 🔑 **Accès sécurisé par VM** : clé SSH **ed25519 unique chiffrée AES-GCM** (Linux) ou **mot de
+  passe RDP** généré et chiffré (Windows) — accessible au seul propriétaire.
+- 📖 **Guides de connexion intégrés** : MobaXterm, Termius (SSH) et Bureau à distance (RDP).
+- ⏱️ **Cycle de vie** : dates début/fin obligatoires, **arrêt automatique à l'échéance**, extinction
+  nocturne (garde-fou coûts), démarrage/arrêt/reboot à la demande.
+- 📊 **Console admin** : stats, métriques, recherche/tri/pagination, gestion des rôles, export CSV.
+- 🌗 Thème clair/sombre · 🌐 FR/EN · 🧾 **journal d'audit** sur les actions sensibles.
 
 ## 🧱 Stack
 
-| Layer | Tech |
-|-------|------|
-| Frontend | React 19 + Vite + TypeScript + Tailwind v4 + TanStack Query + react-i18next |
-| Backend | Cloudflare Worker (Hono) — JSON API + scheduled cron |
-| Database | Cloudflare D1 (SQLite) |
-| Hosting | Cloudflare Workers Static Assets (SPA) |
-| Auth | Microsoft Entra ID (OIDC authorization-code flow) |
-| Compute | AWS EC2 (region `eu-central-2` / Zurich), signed with `aws4fetch` |
-| Email | EmailJS REST API |
+| Couche | Techno |
+|---|---|
+| Frontend | React 19 · Vite · TypeScript · Tailwind v4 · TanStack Query · react-i18next |
+| Backend | Cloudflare Worker (**Hono**) — API JSON + cron `scheduled()` |
+| Base de données | Cloudflare **D1** (SQLite) |
+| Hébergement | Cloudflare Workers Static Assets (SPA) + Worker (API) |
+| Auth | Microsoft **Entra ID** (OIDC) |
+| Compute | **AWS EC2** (`eu-central-2` / Zurich), signé `aws4fetch` |
+| Email | EmailJS (REST) · Erreurs : Sentry (optionnel) |
+
+Choix d'architecture justifiés dans les [ADR](docs/adr/).
+
+## 🚀 Démarrage rapide
+
+```bash
+# 1. Installer les dépendances (worker + SPA)
+npm install && npm --prefix web install
+
+# 2. Migrer la base locale
+npx wrangler d1 migrations apply git_vm_portal --local
+
+# 3. Lancer le worker (API) et la SPA
+npx wrangler dev                 # → http://localhost:8787  (API)
+npm --prefix web run dev         # → http://localhost:5173  (SPA, proxy /api → :8787)
+```
+
+> Les secrets locaux se mettent dans un fichier `.dev.vars` (non commité). Voir
+> [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
+
+## 🗺️ Architecture en bref
+
+```
+Navigateur ──HTTPS──> Cloudflare Worker (Hono)
+   │  React SPA            │  OIDC Entra ID · API JSON · cron scheduled()
+   │  (static assets)      ├──> D1 (SQLite)  = état désiré
+   │                       ├──> AWS EC2 (aws4fetch) = provisioning réel
+   │                       └──> EmailJS = notifications
+   └─ La cron réconcilie en continu l'état réel AWS avec la DB (provisioning→active, drift, expiry).
+```
+
+Détails et diagrammes : [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## 📁 Structure
 
 ```
-src/            Cloudflare Worker (API, OIDC, AWS, email, D1)
-migrations/     D1 schema migrations
-web/            React SPA (built to web/dist, served as static assets)
-scripts/        One-off AWS helper scripts (discover/setup/cleanup)
-wrangler.jsonc  Worker + bindings config
+src/            Worker Cloudflare (API, OIDC, AWS, email, D1, cron)
+migrations/     Migrations de schéma D1
+web/            SPA React (build → web/dist, servie en static assets)
+scripts/        Helpers AWS one-off (découverte AMIs, ouverture RDP, e2e…)
+docs/           Architecture, déploiement, configuration, ADR, analyse, roadmap
+wrangler.jsonc  Config Worker + bindings
+AGENTS.md       Guide d'entrée pour agents IA & nouveaux devs
+CLAUDE.md       Contexte projet détaillé
 ```
 
-## 🚀 Development
+## 🚢 Déploiement
 
-```bash
-# install
-npm install
-npm --prefix web install
+Le déploiement est **automatique via Cloudflare Workers Builds** : un merge sur **`main`** déclenche
+build + migrations D1 + déploiement. **Pas de `wrangler deploy` manuel.** Voir
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-# run the worker (API) on :8787
-npx wrangler dev
+## 🔐 Secrets
 
-# run the SPA with hot reload (proxies /api to :8787)
-npm --prefix web run dev
-```
-
-## 🛠️ Build & deploy
-
-```bash
-npm --prefix web run build   # build the SPA -> web/dist
-npx wrangler deploy          # deploy Worker + assets
-```
-
-Secrets are managed with `wrangler secret put` (never committed):
+Config publique dans `wrangler.jsonc` (`vars`). Secrets via `wrangler secret put` (jamais commités) :
 `SESSION_SECRET`, `ENTRA_CLIENT_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
-`EMAILJS_PRIVATE_KEY`.
+`EMAILJS_PRIVATE_KEY`. Détail, IAM, rotation : [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
 
-## 🗄️ Database
+## 📚 Documentation
 
-```bash
-npx wrangler d1 migrations apply git_vm_portal --remote
-```
+| Document | Contenu |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Point d'entrée IA & onboarding — l'essentiel pour travailler ici |
+| [CLAUDE.md](CLAUDE.md) | Contexte projet détaillé, échéances, priorités |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture, flux, modèle de données, sécurité |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Pipeline CI/CD, publication, rollback |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Variables, secrets, IAM AWS, Entra, EmailJS, rotation |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Workflow, conventions, qualité, PR |
+| [docs/adr/](docs/adr/) | Décisions d'architecture (ADR) |
 
-## 📄 License
+## 📄 Licence
 
-Internal educational project — all rights reserved.
+Projet éducatif interne — tous droits réservés.
