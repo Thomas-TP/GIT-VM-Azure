@@ -37,6 +37,11 @@ export const api = {
     }),
   getRequest: (id: number) => req<{ request: VmRequest }>(`/api/requests/${id}`).then((r) => r.request),
   terminate: (id: number) => req<{ ok: true }>(`/api/requests/${id}/terminate`, { method: 'POST' }),
+  start: (id: number) => req<{ ok: true }>(`/api/requests/${id}/start`, { method: 'POST' }),
+  stop: (id: number) => req<{ ok: true }>(`/api/requests/${id}/stop`, { method: 'POST' }),
+  reboot: (id: number) => req<{ ok: true }>(`/api/requests/${id}/reboot`, { method: 'POST' }),
+  live: (id: number) =>
+    req<{ state: string; publicIp: string | null; launchTime: string | null }>(`/api/requests/${id}/live`),
   keyUrl: (id: number) => `/api/requests/${id}/key`,
 
   adminList: (status?: Status | '') =>

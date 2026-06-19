@@ -150,3 +150,10 @@ export const IconCopy = (p: IconProps) => (
     <rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />
   </svg>
 );
+export const IconPlay = (p: IconProps) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" className={p.className}><path d="M7 5v14l11-7z" fill="currentColor" /></svg>
+);
+export const IconStop = (p: IconProps) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" className={p.className}><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
+);
+export const IconReboot = (p: IconProps) => <I {...p} d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" />;

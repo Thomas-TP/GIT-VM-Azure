@@ -27,8 +27,19 @@ import {
   updateVm,
   getVmByRequest,
   getKeyForRequest,
+  listActiveVms,
 } from './db';
-import { createKeyPair, launchInstance, describeInstance, terminateInstance, deleteKeyPair } from './aws';
+import {
+  createKeyPair,
+  launchInstance,
+  describeInstance,
+  terminateInstance,
+  deleteKeyPair,
+  startInstance,
+  stopInstance,
+  rebootInstance,
+  listManagedInstances,
+} from './aws';
 import {
   notifyAdminsNewRequest,
   notifyUserApproved,
@@ -186,6 +197,74 @@ app.post('/api/requests/:id/terminate', apiAuth, async (c) => {
   }
 });
 
+async function authorizeVm(c: any, id: number): Promise<{ r: any; vm: any } | null> {
+  const user = c.get('user');
+  const r = await getRequest(c.env, id);
+  if (!r) return null;
+  if (r.user_email !== user.email && user.role !== 'admin') return null;
+  const vm: any = await getVmByRequest(c.env, id);
+  return { r, vm };
+}
+
+app.post('/api/requests/:id/start', apiAuth, async (c) => {
+  const id = Number(c.req.param('id'));
+  const ctx = await authorizeVm(c, id);
+  if (!ctx) return c.json({ error: 'not_found' }, 404);
+  if (!ctx.vm?.aws_instance_id) return c.json({ error: 'no_instance' }, 400);
+  try {
+    await startInstance(c.env, ctx.vm.aws_instance_id);
+    await updateVm(c.env, id, 'pending');
+    await audit(c.env, c.get('user').email, 'vm.start', `req:${id}`);
+    return c.json({ ok: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post('/api/requests/:id/stop', apiAuth, async (c) => {
+  const id = Number(c.req.param('id'));
+  const ctx = await authorizeVm(c, id);
+  if (!ctx) return c.json({ error: 'not_found' }, 404);
+  if (!ctx.vm?.aws_instance_id) return c.json({ error: 'no_instance' }, 400);
+  try {
+    await stopInstance(c.env, ctx.vm.aws_instance_id);
+    await updateVm(c.env, id, 'stopping');
+    await audit(c.env, c.get('user').email, 'vm.stop', `req:${id}`);
+    return c.json({ ok: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post('/api/requests/:id/reboot', apiAuth, async (c) => {
+  const id = Number(c.req.param('id'));
+  const ctx = await authorizeVm(c, id);
+  if (!ctx) return c.json({ error: 'not_found' }, 404);
+  if (!ctx.vm?.aws_instance_id) return c.json({ error: 'no_instance' }, 400);
+  try {
+    await rebootInstance(c.env, ctx.vm.aws_instance_id);
+    await audit(c.env, c.get('user').email, 'vm.reboot', `req:${id}`);
+    return c.json({ ok: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// Live AWS state (state + public IP + uptime) — used by the detail page.
+app.get('/api/requests/:id/live', apiAuth, async (c) => {
+  const id = Number(c.req.param('id'));
+  const ctx = await authorizeVm(c, id);
+  if (!ctx) return c.json({ error: 'not_found' }, 404);
+  if (!ctx.vm?.aws_instance_id) return c.json({ state: 'none' });
+  try {
+    const s = await describeInstance(c.env, ctx.vm.aws_instance_id);
+    await updateVm(c.env, id, s.state, s.publicIp);
+    return c.json({ state: s.state, publicIp: s.publicIp ?? null, launchTime: s.launchTime ?? null });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // ---- Admin API ----------------------------------------------------------
 app.get('/api/admin/requests', apiAdmin, async (c) => {
   const status = c.req.query('status');
@@ -247,31 +326,80 @@ app.post('/api/admin/requests/:id/reject', apiAdmin, async (c) => {
 // ---- Static assets (React SPA) -----------------------------------------
 app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
-// ---- Scheduled: poll provisioning VMs -> active -------------------------
-async function pollProvisioning(env: Env): Promise<void> {
-  const pending = await listRequestsByStatus(env, 'provisioning');
-  for (const req of pending) {
+// ---- Scheduled: reconcile state + scheduled stop ------------------------
+// Reconcile DB against AWS: promote provisioning->active, sync running/stopped
+// state, and detect drift (instances terminated outside the portal).
+async function reconcile(env: Env): Promise<void> {
+  let managed: Record<string, string> = {};
+  try {
+    managed = await listManagedInstances(env);
+  } catch {
+    /* AWS unreachable this tick — skip */
+  }
+  const rows = await listActiveVms(env);
+  for (const row of rows) {
+    if (!row.aws_instance_id) continue;
     try {
-      const vm: any = await getVmByRequest(env, req.id);
-      if (!vm?.aws_instance_id) continue;
-      const status = await describeInstance(env, vm.aws_instance_id);
-      if (status.state === 'running' && status.publicIp) {
-        await updateVm(env, req.id, 'running', status.publicIp);
-        await setRequestStatus(env, req.id, 'active');
-        await audit(env, 'system', 'vm.active', `req:${req.id}`, status.publicIp);
-        await notifyUserReady(env, req.user_email, req.id, status.publicIp, vm.ssh_user ?? 'ubuntu');
-      } else {
-        await updateVm(env, req.id, status.state);
+      const awsState = managed[row.aws_instance_id];
+
+      // Drift: instance gone (terminated/replaced outside the portal)
+      if (!awsState || awsState === 'terminated' || awsState === 'shutting-down') {
+        await updateVm(env, row.id, 'terminated');
+        await setRequestStatus(env, row.id, 'terminated');
+        await audit(env, 'system', 'vm.drift.terminated', `req:${row.id}`, row.aws_instance_id);
+        continue;
+      }
+
+      // Provisioning -> active once running with a public IP
+      if (row.status === 'provisioning') {
+        const s = await describeInstance(env, row.aws_instance_id);
+        if (s.state === 'running' && s.publicIp) {
+          await updateVm(env, row.id, 'running', s.publicIp);
+          await setRequestStatus(env, row.id, 'active');
+          await audit(env, 'system', 'vm.active', `req:${row.id}`, s.publicIp);
+          await notifyUserReady(env, row.user_email, row.id, s.publicIp, row.ssh_user ?? 'ubuntu');
+        } else {
+          await updateVm(env, row.id, s.state);
+        }
+        continue;
+      }
+
+      // Active: keep DB state in sync; refresh IP when it comes back up
+      if (awsState !== row.state) {
+        if (awsState === 'running') {
+          const s = await describeInstance(env, row.aws_instance_id);
+          await updateVm(env, row.id, 'running', s.publicIp);
+        } else {
+          await updateVm(env, row.id, awsState);
+        }
       }
     } catch (e: any) {
-      await audit(env, 'system', 'vm.poll.error', `req:${req.id}`, e.message);
+      await audit(env, 'system', 'vm.reconcile.error', `req:${row.id}`, e.message);
+    }
+  }
+}
+
+// Stop all running portal VMs (off-hours cost guardrail). Users can restart them.
+async function scheduledStop(env: Env): Promise<void> {
+  if (env.SCHEDULED_STOP !== 'true') return;
+  const rows = await listActiveVms(env);
+  for (const row of rows) {
+    if (row.status === 'active' && row.state === 'running' && row.aws_instance_id) {
+      try {
+        await stopInstance(env, row.aws_instance_id);
+        await updateVm(env, row.id, 'stopping');
+        await audit(env, 'system', 'vm.scheduled_stop', `req:${row.id}`);
+      } catch (e: any) {
+        await audit(env, 'system', 'vm.scheduled_stop.error', `req:${row.id}`, e.message);
+      }
     }
   }
 }
 
 export default {
   fetch: app.fetch,
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(pollProvisioning(env));
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    if (event.cron === '0 19 * * *') ctx.waitUntil(scheduledStop(env));
+    else ctx.waitUntil(reconcile(env));
   },
 } satisfies ExportedHandler<Env>;

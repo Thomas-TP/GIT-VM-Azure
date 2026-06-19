@@ -35,13 +35,15 @@
 
     "APP_URL": "https://git-vm-portal.thomas-prudhomme.workers.dev",
     "MAIL_ENABLED": "true",
+    "SCHEDULED_STOP": "true",
     "EMAILJS_PUBLIC_KEY": "KlKcUV9eCQouP22hT",
     "EMAILJS_SERVICE_ID": "service_aeuc86a",
     "EMAILJS_TEMPLATE_ID": "template_za3761l"
   },
 
   "triggers": {
-    // Poll provisioning VMs every minute: fetch public IP, mark active, email user.
-    "crons": ["*/1 * * * *"]
+    // every 2 min: reconcile AWS state (provisioning->active, drift detection)
+    // daily 19:00 UTC: scheduled stop of running VMs (cost guardrail)
+    "crons": ["*/2 * * * *", "0 19 * * *"]
   }
 }

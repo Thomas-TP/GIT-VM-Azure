@@ -3,8 +3,20 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
-import { fmtDate } from '../lib/format';
-import { Button, Card, IconBack, IconCopy, IconDownload, IconTrash, Modal, Spinner } from '../ui';
+import { fmtDate, fmtUptime } from '../lib/format';
+import {
+  Button,
+  Card,
+  IconBack,
+  IconCopy,
+  IconDownload,
+  IconPlay,
+  IconReboot,
+  IconStop,
+  IconTrash,
+  Modal,
+  Spinner,
+} from '../ui';
 import { StatusBadge } from '../components/StatusBadge';
 
 function Row({ label, children, mono }: { label: string; children: React.ReactNode; mono?: boolean }) {
@@ -15,7 +27,6 @@ function Row({ label, children, mono }: { label: string; children: React.ReactNo
     </div>
   );
 }
-
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</h2>;
 }
@@ -54,15 +65,23 @@ export function RequestDetail() {
     refetchInterval: (query) => (query.state.data?.status === 'provisioning' ? 5000 : false),
   });
   const presetsQ = useQuery({ queryKey: ['presets'], queryFn: api.presets });
-
-  const termM = useMutation({
-    mutationFn: () => api.terminate(rid),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['request', rid] });
-      qc.invalidateQueries({ queryKey: ['requests'] });
-      setConfirmTerm(false);
-    },
+  const liveQ = useQuery({
+    queryKey: ['live', rid],
+    queryFn: () => api.live(rid),
+    enabled: q.data?.status === 'active',
+    refetchInterval: 10000,
   });
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['request', rid] });
+    qc.invalidateQueries({ queryKey: ['live', rid] });
+    qc.invalidateQueries({ queryKey: ['requests'] });
+  };
+  const termM = useMutation({ mutationFn: () => api.terminate(rid), onSuccess: () => { refresh(); setConfirmTerm(false); } });
+  const startM = useMutation({ mutationFn: () => api.start(rid), onSuccess: refresh });
+  const stopM = useMutation({ mutationFn: () => api.stop(rid), onSuccess: refresh });
+  const rebootM = useMutation({ mutationFn: () => api.reboot(rid), onSuccess: refresh });
+  const busy = startM.isPending || stopM.isPending || rebootM.isPending;
 
   if (q.isLoading)
     return (
@@ -86,8 +105,10 @@ export function RequestDetail() {
   const storageLabel = cat?.storage.find((s) => s.id === r.storage)?.label ?? r.storage ?? '—';
   const osLabel = cat?.os.find((o) => o.id === r.os)?.label ?? r.os ?? '—';
   const sshUser = r.ssh_user ?? 'ubuntu';
+  const vmState = liveQ.data?.state ?? r.vm_state ?? 'none';
+  const ip = liveQ.data?.publicIp ?? r.public_ip ?? null;
   const canTerm = r.status === 'active' || r.status === 'provisioning' || r.status === 'failed';
-  const cmd = r.public_ip ? `ssh -i ${r.ssh_key_name ?? `vm-portal-req-${r.id}`}.pem ${sshUser}@${r.public_ip}` : '';
+  const cmd = ip ? `ssh -i ${r.ssh_key_name ?? `vm-portal-req-${r.id}`}.pem ${sshUser}@${ip}` : '';
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -100,11 +121,28 @@ export function RequestDetail() {
           <h1 className="text-2xl font-semibold tracking-tight">{t('detail.title', { id: r.id })}</h1>
           <StatusBadge status={r.status} />
         </div>
-        {canTerm && (
-          <Button variant="danger" onClick={() => setConfirmTerm(true)}>
-            <IconTrash className="h-4 w-4" /> {t('actions.terminate')}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {r.status === 'active' && vmState === 'stopped' && (
+            <Button variant="secondary" disabled={busy} onClick={() => startM.mutate()}>
+              <IconPlay className="h-4 w-4 text-emerald-600" /> {t('actions.start')}
+            </Button>
+          )}
+          {r.status === 'active' && vmState === 'running' && (
+            <>
+              <Button variant="secondary" disabled={busy} onClick={() => stopM.mutate()}>
+                <IconStop className="h-4 w-4 text-amber-600" /> {t('actions.stop')}
+              </Button>
+              <Button variant="secondary" disabled={busy} onClick={() => rebootM.mutate()}>
+                <IconReboot className="h-4 w-4" /> {t('actions.reboot')}
+              </Button>
+            </>
+          )}
+          {canTerm && (
+            <Button variant="danger" onClick={() => setConfirmTerm(true)}>
+              <IconTrash className="h-4 w-4" /> {t('actions.terminate')}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
@@ -119,29 +157,48 @@ export function RequestDetail() {
             <Row label={t('detail.requestedBy')}>{r.user_email}</Row>
             <Row label={t('detail.createdAt')}>{fmtDate(r.created_at)}</Row>
             {r.decided_by && <Row label={t('detail.decidedBy')}>{r.decided_by}</Row>}
-            {r.decided_at && <Row label={t('detail.decidedAt')}>{fmtDate(r.decided_at)}</Row>}
             {r.admin_note && <Row label={t('detail.adminNote')}>{r.admin_note}</Row>}
           </div>
         </Card>
 
         <Card className="p-5">
           <Eyebrow>{t('detail.connection')}</Eyebrow>
-          {r.status === 'active' && r.public_ip ? (
+          {r.status === 'active' ? (
             <div className="space-y-4">
               <div className="divide-y divide-border">
-                <Row label={t('detail.ip')} mono>{r.public_ip}</Row>
+                <Row label={t('detail.state')}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        vmState === 'running' ? 'bg-emerald-500' : vmState === 'stopped' ? 'bg-zinc-400' : 'bg-amber-500'
+                      }`}
+                    />
+                    {t(`vmState.${vmState}`, vmState)}
+                  </span>
+                </Row>
+                {vmState === 'running' && liveQ.data?.launchTime && (
+                  <Row label={t('detail.uptime')}>{fmtUptime(liveQ.data.launchTime)}</Row>
+                )}
+                {ip && <Row label={t('detail.ip')} mono>{ip}</Row>}
                 {r.aws_instance_id && <Row label={t('detail.instance')} mono>{r.aws_instance_id}</Row>}
               </div>
-              <div>
-                <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t('detail.sshCommand')}</p>
-                <CopyCmd cmd={cmd} />
-              </div>
-              <a href={api.keyUrl(r.id)} className="inline-flex">
-                <Button variant="secondary">
-                  <IconDownload className="h-4 w-4" /> {t('access.downloadKey')}
-                </Button>
-              </a>
-              <p className="text-xs leading-relaxed text-muted-foreground">{t('detail.keyHint')}</p>
+
+              {vmState === 'running' && ip ? (
+                <>
+                  <div>
+                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">{t('detail.sshCommand')}</p>
+                    <CopyCmd cmd={cmd} />
+                  </div>
+                  <a href={api.keyUrl(r.id)} className="inline-flex">
+                    <Button variant="secondary">
+                      <IconDownload className="h-4 w-4" /> {t('access.downloadKey')}
+                    </Button>
+                  </a>
+                  <p className="text-xs leading-relaxed text-muted-foreground">{t('detail.keyHint')}</p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t('detail.notReady')}</p>
+              )}
             </div>
           ) : (
             <p className="py-10 text-center text-sm text-muted-foreground">{t('detail.notReady')}</p>

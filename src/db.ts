@@ -156,3 +156,22 @@ export async function updateVm(env: Env, requestId: number, state: string, publi
 export async function getVmByRequest(env: Env, requestId: number) {
   return await env.DB.prepare(`SELECT * FROM vms WHERE request_id = ?1`).bind(requestId).first();
 }
+
+export interface ActiveVm {
+  id: number;
+  status: string;
+  user_email: string;
+  aws_instance_id: string | null;
+  ssh_user: string | null;
+  state: string | null;
+}
+
+// Requests that have (or are getting) a live instance — for reconcile / scheduled stop.
+export async function listActiveVms(env: Env): Promise<ActiveVm[]> {
+  const res = await env.DB.prepare(
+    `SELECT r.id, r.status, r.user_email, v.aws_instance_id, v.ssh_user, v.state
+       FROM vm_requests r JOIN vms v ON v.request_id = r.id
+      WHERE r.status IN ('provisioning', 'active')`
+  ).all<ActiveVm>();
+  return res.results ?? [];
+}
