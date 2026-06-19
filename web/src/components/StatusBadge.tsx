@@ -9,6 +9,7 @@ const dot: Record<Status, string> = {
   rejected: 'bg-red-500',
   failed: 'bg-red-500',
   terminated: 'bg-zinc-400',
+  expired: 'bg-orange-500',
 };
 
 export function StatusBadge({ status }: { status: Status }) {

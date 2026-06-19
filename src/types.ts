@@ -49,6 +49,9 @@ export interface VmRequestRow {
   decided_by: string | null;
   created_at: string;
   decided_at: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  expired_at: string | null;
   // joined from vms (nullable)
   public_ip?: string | null;
   ssh_key_name?: string | null;

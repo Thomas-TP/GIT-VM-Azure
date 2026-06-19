@@ -30,10 +30,17 @@ export const api = {
   presets: () => req<PresetCatalog>('/api/presets'),
 
   listRequests: () => req<{ requests: VmRequest[] }>('/api/requests').then((r) => r.requests),
-  createRequest: (perf: string, storage: string, os: string, purpose: string) =>
+  createRequest: (
+    perf: string,
+    storage: string,
+    os: string,
+    purpose: string,
+    startDate: string | null,
+    endDate: string
+  ) =>
     req<{ id: number }>('/api/requests', {
       method: 'POST',
-      body: JSON.stringify({ perf, storage, os, purpose }),
+      body: JSON.stringify({ perf, storage, os, purpose, startDate, endDate }),
     }),
   getRequest: (id: number) => req<{ request: VmRequest }>(`/api/requests/${id}`).then((r) => r.request),
   terminate: (id: number) => req<{ ok: true }>(`/api/requests/${id}/terminate`, { method: 'POST' }),

@@ -1,5 +1,6 @@
 import {
   type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -48,6 +49,9 @@ const ctrl =
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={`${ctrl} h-9 ${props.className ?? ''}`} />;
+}
+export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...props} className={`${ctrl} h-9 ${props.className ?? ''}`} />;
 }
 export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={`${ctrl} resize-y py-2 leading-relaxed ${props.className ?? ''}`} />;

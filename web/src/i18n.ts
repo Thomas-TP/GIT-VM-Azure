@@ -29,6 +29,7 @@ const fr = {
     active: 'Active',
     failed: 'Échec',
     terminated: 'Supprimée',
+    expired: 'Expirée',
   },
   dashboard: {
     title: 'Mes machines virtuelles',
@@ -46,6 +47,7 @@ const fr = {
     created: 'Créée le',
     user: 'Utilisateur',
     region: 'Région',
+    expires: 'Expire le',
   },
   form: {
     title: 'Demander une machine virtuelle',
@@ -58,6 +60,9 @@ const fr = {
     submitting: 'Envoi…',
     estCost: 'Coût estimé (24/7)',
     month: 'mois',
+    start: 'Début',
+    end: 'Fin (obligatoire)',
+    endRequired: 'Une date de fin valide est obligatoire (postérieure à maintenant et au début).',
   },
   access: {
     provisioning: 'Création en cours…',
@@ -100,6 +105,8 @@ const fr = {
     decidedAt: 'Date de décision',
     state: 'État',
     uptime: 'Démarrée depuis',
+    startDate: 'Début',
+    endDate: 'Date de fin',
   },
   admin: {
     title: 'Administration',
@@ -183,6 +190,7 @@ const en: typeof fr = {
     active: 'Active',
     failed: 'Failed',
     terminated: 'Terminated',
+    expired: 'Expired',
   },
   dashboard: {
     title: 'My virtual machines',
@@ -200,6 +208,7 @@ const en: typeof fr = {
     created: 'Created',
     user: 'User',
     region: 'Region',
+    expires: 'Expires',
   },
   form: {
     title: 'Request a virtual machine',
@@ -212,6 +221,9 @@ const en: typeof fr = {
     submitting: 'Submitting…',
     estCost: 'Estimated cost (24/7)',
     month: 'month',
+    start: 'Start',
+    end: 'End (required)',
+    endRequired: 'A valid end date is required (after now and after the start).',
   },
   access: {
     provisioning: 'Provisioning…',
@@ -254,6 +266,8 @@ const en: typeof fr = {
     decidedAt: 'Decided at',
     state: 'State',
     uptime: 'Up for',
+    startDate: 'Start',
+    endDate: 'End date',
   },
   admin: {
     title: 'Administration',

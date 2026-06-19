@@ -41,7 +41,8 @@ export type Status =
   | 'provisioning'
   | 'active'
   | 'failed'
-  | 'terminated';
+  | 'terminated'
+  | 'expired';
 
 export interface AdminUser {
   email: string;
@@ -75,6 +76,9 @@ export interface VmRequest {
   decided_by: string | null;
   created_at: string;
   decided_at: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  expired_at: string | null;
   public_ip?: string | null;
   ssh_key_name?: string | null;
   ssh_user?: string | null;

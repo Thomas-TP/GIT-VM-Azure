@@ -86,13 +86,15 @@ export async function createRequest(
   perf: string,
   storage: string,
   os: string,
-  region: string
+  region: string,
+  startDate: string | null,
+  endDate: string
 ): Promise<number> {
   const res = await env.DB.prepare(
-    `INSERT INTO vm_requests (user_email, purpose, preset, storage, os, region)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+    `INSERT INTO vm_requests (user_email, purpose, preset, storage, os, region, start_date, end_date)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
   )
-    .bind(email, purpose, perf, storage, os, region)
+    .bind(email, purpose, perf, storage, os, region, startDate, endDate)
     .run();
   return res.meta.last_row_id as number;
 }
@@ -121,8 +123,10 @@ export async function listRequestsForUser(env: Env, email: string): Promise<VmRe
 }
 
 export async function listRequestsByStatus(env: Env, status?: string): Promise<VmRequestRow[]> {
+  // "expired" is derived from expired_at; filtering by it (or by 'active') honors that.
+  const eff = `(CASE WHEN expired_at IS NOT NULL THEN 'expired' ELSE status END)`;
   const stmt = status
-    ? env.DB.prepare(`SELECT * FROM vm_requests WHERE status = ?1 ORDER BY created_at DESC`).bind(status)
+    ? env.DB.prepare(`SELECT * FROM vm_requests WHERE ${eff} = ?1 ORDER BY created_at DESC`).bind(status)
     : env.DB.prepare(`SELECT * FROM vm_requests ORDER BY created_at DESC`);
   const res = await stmt.all<VmRequestRow>();
   return res.results ?? [];
@@ -171,8 +175,11 @@ export async function getRequestDetail(env: Env, id: number): Promise<RequestDet
 }
 
 export async function countByStatus(env: Env): Promise<Record<string, number>> {
+  // Bucket expired VMs separately (derived from expired_at) so "active" excludes them.
   const res = await env.DB.prepare(
-    `SELECT status, COUNT(*) AS n FROM vm_requests GROUP BY status`
+    `SELECT CASE WHEN expired_at IS NOT NULL THEN 'expired' ELSE status END AS status,
+            COUNT(*) AS n
+       FROM vm_requests GROUP BY 1`
   ).all<{ status: string; n: number }>();
   const out: Record<string, number> = {};
   for (const row of res.results ?? []) out[row.status] = row.n;
@@ -239,4 +246,45 @@ export async function listActiveVms(env: Env): Promise<ActiveVm[]> {
       WHERE r.status IN ('provisioning', 'active')`
   ).all<ActiveVm>();
   return res.results ?? [];
+}
+
+export interface ExpirableVm {
+  id: number;
+  user_email: string;
+  end_date: string;
+  aws_instance_id: string | null;
+  state: string | null;
+}
+
+// Active VMs whose end_date has passed and not yet processed — to STOP (not destroy). ADR 0004.
+export async function listExpired(env: Env): Promise<ExpirableVm[]> {
+  const res = await env.DB.prepare(
+    `SELECT r.id, r.user_email, r.end_date, v.aws_instance_id, v.state
+       FROM vm_requests r JOIN vms v ON v.request_id = r.id
+      WHERE r.status = 'active' AND r.expired_at IS NULL AND r.end_date IS NOT NULL
+        AND datetime(r.end_date) <= datetime('now')`
+  ).all<ExpirableVm>();
+  return res.results ?? [];
+}
+
+// Active VMs expiring within the next 24h — for the heads-up email (sent once).
+export async function listExpiringSoon(
+  env: Env
+): Promise<{ id: number; user_email: string; end_date: string }[]> {
+  const res = await env.DB.prepare(
+    `SELECT r.id, r.user_email, r.end_date
+       FROM vm_requests r
+      WHERE r.status = 'active' AND r.expired_at IS NULL AND r.end_date IS NOT NULL
+        AND datetime(r.end_date) > datetime('now')
+        AND datetime(r.end_date) <= datetime('now', '+24 hours')`
+  ).all<{ id: number; user_email: string; end_date: string }>();
+  return res.results ?? [];
+}
+
+// Mark a request as expired (VM stopped, not destroyed). Status stays 'active' so
+// the CHECK constraint is untouched; "expired" is derived from expired_at everywhere.
+export async function markExpired(env: Env, id: number): Promise<void> {
+  await env.DB.prepare(`UPDATE vm_requests SET expired_at = datetime('now') WHERE id = ?1`)
+    .bind(id)
+    .run();
 }

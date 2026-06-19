@@ -30,6 +30,9 @@ import {
   getVmByRequest,
   getKeyForRequest,
   listActiveVms,
+  listExpired,
+  listExpiringSoon,
+  markExpired,
   listUsers,
   setUserRole,
   addComment,
@@ -52,6 +55,8 @@ import {
   notifyUserApproved,
   notifyUserRejected,
   notifyUserReady,
+  notifyUserExpiring,
+  notifyUserExpired,
 } from './email';
 
 type Vars = { Variables: { user: SessionUser }; Bindings: Env };
@@ -171,12 +176,25 @@ app.post('/api/requests', apiAuth, async (c) => {
   if (!isValidPerf(perf) || !isValidStorage(storage) || !isValidOs(os) || !purpose) {
     return c.json({ error: 'invalid_request' }, 400);
   }
+  // Lifecycle dates: end date is MANDATORY ("aucune machine sans date de fin").
+  const now = Date.now();
+  const end = body.endDate ? new Date(String(body.endDate)) : null;
+  const start = body.startDate ? new Date(String(body.startDate)) : null;
+  if (!end || isNaN(end.getTime()) || end.getTime() <= now) {
+    return c.json({ error: 'invalid_end_date' }, 400);
+  }
+  if (start && (isNaN(start.getTime()) || start.getTime() >= end.getTime())) {
+    return c.json({ error: 'invalid_start_date' }, 400);
+  }
   // Rate limit: max 5 requests per hour per user.
   if ((await countRecentRequests(c.env, user.email, 60)) >= 5) {
     return c.json({ error: 'rate_limited' }, 429);
   }
-  const id = await createRequest(c.env, user.email, purpose, perf, storage, os, c.env.AWS_REGION);
-  await audit(c.env, user.email, 'request.create', `req:${id}`, `${perf}/${storage}/${os}`);
+  const id = await createRequest(
+    c.env, user.email, purpose, perf, storage, os, c.env.AWS_REGION,
+    start ? start.toISOString() : null, end.toISOString()
+  );
+  await audit(c.env, user.email, 'request.create', `req:${id}`, `${perf}/${storage}/${os} end:${end.toISOString()}`);
   c.executionCtx.waitUntil(notifyAdminsNewRequest(c.env, id, user.email, PERF[perf].label));
   return c.json({ id }, 201);
 });
@@ -241,6 +259,8 @@ app.post('/api/requests/:id/start', apiAuth, async (c) => {
   const ctx = await authorizeVm(c, id);
   if (!ctx) return c.json({ error: 'not_found' }, 404);
   if (!ctx.vm?.aws_instance_id) return c.json({ error: 'no_instance' }, 400);
+  // An expired VM cannot be restarted by the user (needs an extension / re-approval).
+  if (ctx.r.expired_at) return c.json({ error: 'expired' }, 409);
   try {
     await startInstance(c.env, ctx.vm.aws_instance_id);
     await updateVm(c.env, id, 'pending');
@@ -350,7 +370,7 @@ app.post('/api/admin/users/:email/role', apiAdmin, async (c) => {
 
 app.get('/api/admin/requests.csv', apiAdmin, async (c) => {
   const rows = await listRequestsByStatus(c.env);
-  const cols = ['id', 'user_email', 'preset', 'storage', 'os', 'region', 'status', 'created_at', 'decided_by', 'decided_at'];
+  const cols = ['id', 'user_email', 'preset', 'storage', 'os', 'region', 'status', 'start_date', 'end_date', 'expired_at', 'created_at', 'decided_by', 'decided_at'];
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const csv = [cols.join(','), ...rows.map((r: any) => cols.map((k) => esc(r[k])).join(','))].join('\n');
   return new Response(csv, {
@@ -485,6 +505,33 @@ async function retryFailed(env: Env): Promise<void> {
   }
 }
 
+// Lifecycle: at end_date, STOP the VM (no destruction — ADR 0004) and mark it
+// 'expired'. Also send a one-time heads-up email 24h before the deadline.
+async function enforceExpiry(env: Env): Promise<void> {
+  for (const row of await listExpired(env)) {
+    try {
+      if (row.aws_instance_id && row.state === 'running') {
+        await stopInstance(env, row.aws_instance_id);
+        await updateVm(env, row.id, 'stopping');
+      }
+      await markExpired(env, row.id);
+      await audit(env, 'system', 'vm.expired', `req:${row.id}`, row.end_date ?? '');
+      await notifyUserExpired(env, row.user_email, row.id);
+    } catch (e: any) {
+      await audit(env, 'system', 'vm.expire.error', `req:${row.id}`, e.message);
+    }
+  }
+  for (const row of await listExpiringSoon(env)) {
+    if ((await countAudit(env, `req:${row.id}`, 'vm.expiring.notified')) > 0) continue;
+    try {
+      await notifyUserExpiring(env, row.user_email, row.id, row.end_date);
+      await audit(env, 'system', 'vm.expiring.notified', `req:${row.id}`);
+    } catch (e: any) {
+      await audit(env, 'system', 'vm.expiring.error', `req:${row.id}`, e.message);
+    }
+  }
+}
+
 app.onError((err, c) => {
   reportError(c.env.SENTRY_DSN, err, c.executionCtx, { path: c.req.path });
   return c.json({ error: 'internal' }, 500);
@@ -500,6 +547,7 @@ export default {
         (async () => {
           await reconcile(env);
           await retryFailed(env);
+          await enforceExpiry(env);
         })()
       );
     }

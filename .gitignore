@@ -15,6 +15,9 @@ web/dist/
 *.pem
 *.key
 
+# local-only Claude Code settings (per-developer, never shared)
+.claude/settings.local.json
+
 # misc
 .DS_Store
 *.log

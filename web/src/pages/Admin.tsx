@@ -149,7 +149,7 @@ export function Admin() {
           </a>
           <Select value={filter} onChange={(e) => { setFilter(e.target.value as Status | ''); setPage(0); }} className="w-44">
             <option value="">{t('admin.allStatuses')}</option>
-            {(['pending', 'provisioning', 'active', 'approved', 'rejected', 'failed', 'terminated'] as Status[]).map((s) => (
+            {(['pending', 'provisioning', 'active', 'approved', 'rejected', 'failed', 'terminated', 'expired'] as Status[]).map((s) => (
               <option key={s} value={s}>{t(`status.${s}`)}</option>
             ))}
           </Select>

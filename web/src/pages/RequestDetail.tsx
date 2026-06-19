@@ -108,6 +108,8 @@ export function RequestDetail() {
     );
 
   const r = q.data;
+  // "expired" is derived from expired_at (the DB status stays 'active'). See ADR 0004.
+  const effStatus = r.expired_at ? 'expired' : r.status;
   const cat = presetsQ.data;
   const perfLabel = cat?.perf.find((p) => p.id === r.preset)?.label ?? r.preset;
   const storageLabel = cat?.storage.find((s) => s.id === r.storage)?.label ?? r.storage ?? '—';
@@ -127,10 +129,10 @@ export function RequestDetail() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{t('detail.title', { id: r.id })}</h1>
-          <StatusBadge status={r.status} />
+          <StatusBadge status={effStatus} />
         </div>
         <div className="flex items-center gap-2">
-          {r.status === 'active' && vmState === 'stopped' && (
+          {r.status === 'active' && vmState === 'stopped' && !r.expired_at && (
             <Button variant="secondary" disabled={busy} onClick={() => startM.mutate()}>
               <IconPlay className="h-4 w-4 text-emerald-600" /> {t('actions.start')}
             </Button>
@@ -164,6 +166,8 @@ export function RequestDetail() {
             <Row label={t('table.purpose')}>{r.purpose}</Row>
             <Row label={t('detail.requestedBy')}>{r.user_email}</Row>
             <Row label={t('detail.createdAt')}>{fmtDate(r.created_at)}</Row>
+            {r.start_date && <Row label={t('detail.startDate')}>{fmtDate(r.start_date)}</Row>}
+            <Row label={t('detail.endDate')}>{fmtDate(r.end_date)}</Row>
             {r.decided_by && <Row label={t('detail.decidedBy')}>{r.decided_by}</Row>}
             {r.admin_note && <Row label={t('detail.adminNote')}>{r.admin_note}</Row>}
           </div>

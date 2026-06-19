@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { PerfPreset, VmRequest } from '../types';
+import type { PerfPreset, Status, VmRequest } from '../types';
 import { fmtDate } from '../lib/format';
 import { StatusBadge } from './StatusBadge';
 import { IconCheck, IconDownload, IconServer, IconTrash, IconX, Spinner } from '../ui';
@@ -44,6 +44,8 @@ function IconBtn({
 export function RequestsTable({ rows, presets, admin, busyId, onApprove, onReject, onTerminate }: Props) {
   const { t } = useTranslation();
   const label = (id: string) => presets[id]?.label ?? id;
+  // "expired" is derived from expired_at (status stays 'active' in the DB).
+  const eff = (r: VmRequest): Status => (r.expired_at ? 'expired' : r.status);
 
   const access = (r: VmRequest) => {
     if (r.status === 'active' && r.public_ip)
@@ -100,6 +102,7 @@ export function RequestsTable({ rows, presets, admin, busyId, onApprove, onRejec
                 {admin && <th className="px-4 py-3 font-medium">{t('table.user')}</th>}
                 <th className="px-4 py-3 font-medium">{t('table.type')}</th>
                 <th className="px-4 py-3 font-medium">{t('table.purpose')}</th>
+                <th className="px-4 py-3 font-medium">{t('table.expires')}</th>
                 <th className="px-4 py-3 font-medium">{t('table.status')}</th>
                 <th className="px-4 py-3 font-medium">{admin ? t('table.created') : t('table.access')}</th>
                 <th className="px-4 py-3 text-right font-medium">{t('common.actions')}</th>
@@ -118,7 +121,8 @@ export function RequestsTable({ rows, presets, admin, busyId, onApprove, onRejec
                   <td className="max-w-[16rem] truncate px-4 py-3 text-muted-foreground" title={r.purpose}>
                     {r.purpose}
                   </td>
-                  <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                  <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{fmtDate(r.end_date)}</td>
+                  <td className="px-4 py-3"><StatusBadge status={eff(r)} /></td>
                   <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                     {admin ? fmtDate(r.created_at) : access(r)}
                   </td>
@@ -138,11 +142,12 @@ export function RequestsTable({ rows, presets, admin, busyId, onApprove, onRejec
               <Link to={`/requests/${r.id}`} className="font-mono text-xs text-muted-foreground">
                 #{String(r.id).padStart(3, '0')}
               </Link>
-              <StatusBadge status={r.status} />
+              <StatusBadge status={eff(r)} />
             </div>
             <div className="mt-2 font-medium">{label(r.preset)}</div>
             {admin && <div className="text-xs text-muted-foreground">{r.user_email}</div>}
             <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{r.purpose}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{t('table.expires')} : {fmtDate(r.end_date)}</div>
             <div className="mt-3 flex items-center justify-between gap-2">
               <div className="text-sm">{admin ? <span className="text-muted-foreground">{fmtDate(r.created_at)}</span> : access(r)}</div>
               {actions(r)}

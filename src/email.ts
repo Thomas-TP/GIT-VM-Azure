@@ -76,6 +76,23 @@ export async function notifyUserRejected(env: Env, to: string, reqId: number, no
   await sendMail(env, { to, subject: `Demande #${reqId} refusée`, title: 'Demande refusée', message });
 }
 
+export async function notifyUserExpiring(env: Env, to: string, reqId: number, endDate: string) {
+  const when = new Date(endDate).toLocaleString('fr-CH', { dateStyle: 'long', timeStyle: 'short' });
+  const message =
+    `Rappel — ta VM #${reqId} arrive à échéance le ${when}.\n\n` +
+    `À cette date, elle sera automatiquement ARRÊTÉE (tes données sont conservées). ` +
+    `Tu pourras la redémarrer si une prolongation est accordée. Pense à sauvegarder ton travail.`;
+  await sendMail(env, { to, subject: `VM #${reqId} — échéance proche`, title: 'Échéance proche ⏰', message });
+}
+
+export async function notifyUserExpired(env: Env, to: string, reqId: number) {
+  const message =
+    `Ta VM #${reqId} a atteint sa date de fin et a été automatiquement ARRÊTÉE.\n\n` +
+    `Tes données restent conservées sur le disque. Contacte un administrateur si tu as ` +
+    `besoin d'une prolongation.`;
+  await sendMail(env, { to, subject: `VM #${reqId} expirée (arrêtée)`, title: 'VM expirée — arrêtée ⏹️', message });
+}
+
 export async function notifyUserReady(env: Env, to: string, reqId: number, ip: string, sshUser = 'ubuntu') {
   const message =
     `Ta VM #${reqId} est active et prête à l'emploi. 🎉\n\n` +

@@ -4,7 +4,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api';
 import { useToast } from '../toast';
 import type { PresetCatalog } from '../types';
-import { Button, Field, Modal, Select, Spinner, Textarea } from '../ui';
+import { Button, Field, Input, Modal, Select, Spinner, Textarea } from '../ui';
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const toLocalInput = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 export function NewRequestDialog({
   open,
@@ -22,6 +26,14 @@ export function NewRequestDialog({
   const [storage, setStorage] = useState(catalog.storage[1]?.id ?? catalog.storage[0]?.id ?? '');
   const [os, setOs] = useState(catalog.os[0]?.id ?? '');
   const [purpose, setPurpose] = useState('');
+  const [start, setStart] = useState(() => toLocalInput(new Date()));
+  const [end, setEnd] = useState(() => toLocalInput(new Date(Date.now() + 7 * 86400000)));
+
+  const endDate = end ? new Date(end) : null;
+  const startDate = start ? new Date(start) : null;
+  const datesValid =
+    !!endDate && !isNaN(endDate.getTime()) && endDate.getTime() > Date.now() &&
+    (!startDate || (!isNaN(startDate.getTime()) && startDate.getTime() < endDate.getTime()));
 
   const monthly = useMemo(() => {
     const p = catalog.perf.find((x) => x.id === perf);
@@ -32,7 +44,15 @@ export function NewRequestDialog({
   const hourly = catalog.perf.find((x) => x.id === perf)?.hourlyUsd ?? 0;
 
   const m = useMutation({
-    mutationFn: () => api.createRequest(perf, storage, os, purpose.trim()),
+    mutationFn: () =>
+      api.createRequest(
+        perf,
+        storage,
+        os,
+        purpose.trim(),
+        start ? new Date(start).toISOString() : null,
+        new Date(end).toISOString()
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['requests'] });
       setPurpose('');
@@ -54,7 +74,7 @@ export function NewRequestDialog({
           <Button variant="secondary" onClick={onClose} disabled={m.isPending}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={() => m.mutate()} disabled={!perf || !storage || !os || !purpose.trim() || m.isPending}>
+          <Button onClick={() => m.mutate()} disabled={!perf || !storage || !os || !purpose.trim() || !datesValid || m.isPending}>
             {m.isPending ? <Spinner className="h-4 w-4" /> : null}
             {m.isPending ? t('form.submitting') : t('form.submit')}
           </Button>
@@ -99,6 +119,16 @@ export function NewRequestDialog({
             placeholder={t('form.purposePlaceholder')}
           />
         </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t('form.start')}>
+            <Input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
+          </Field>
+          <Field label={t('form.end')}>
+            <Input type="datetime-local" value={end} min={start} onChange={(e) => setEnd(e.target.value)} />
+          </Field>
+        </div>
+        {!datesValid && <p className="-mt-1 text-xs text-amber-500">{t('form.endRequired')}</p>}
 
         <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3.5 py-2.5">
           <span className="text-xs text-muted-foreground">{t('form.estCost')}</span>
