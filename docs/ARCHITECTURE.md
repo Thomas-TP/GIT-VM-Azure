@@ -96,11 +96,13 @@ par la **cron** quand l'instance tourne avec une IP. À l'échéance, la VM est 
 
 | Cron | Fonction | Effet |
 |---|---|---|
-| `*/2 * * * *` | `reconcile` + `retryFailed` + `enforceExpiry` | sync AWS↔DB, drift, retries, échéances |
-| `0 19 * * *` | `scheduledStop` | arrête les VM running (garde-fou coûts) |
+| `*/2 * * * *` | `reconcile` + `applySchedules` + `retryFailed` + `enforceExpiry` | sync AWS↔DB, drift, plannings, retries, échéances |
+| `0 19 * * *` | `scheduledStop` | arrête les VM running sans planning (garde-fou coûts) |
 
 - **`reconcile`** : `provisioning → active` (running + IP, + email), drift (instance disparue →
   `terminated`), sync de l'état running/stopped + IP.
+- **`applySchedules`** : applique les **plannings auto start/stop** par VM (état désiré, Europe/Zurich) :
+  dans la fenêtre + jour coché → la VM doit tourner, sinon arrêtée. `scheduledStop` (19 h) ignore ces VM.
 - **`retryFailed`** : relance les provisioning échoués sans instance (max 3, compté dans l'audit log).
 - **`enforceExpiry`** : à `end_date` → **supprime** la VM (terminate instance + clé) + `expired_at` +
   email ; e-mail de pré-échéance 24 h avant (sauvegarde) — [ADR 0008](adr/0008-suppression-auto-a-l-echeance.md).
@@ -136,6 +138,8 @@ erDiagram
         text start_date
         text end_date
         text expired_at "dérive 'expired'"
+        int schedule_enabled "auto start/stop"
+        text schedule_days "CSV ISO 1-7"
     }
     vms {
         int id PK

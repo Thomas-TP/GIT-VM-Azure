@@ -51,6 +51,10 @@ export const api = {
     req<{ state: string; publicIp: string | null; launchTime: string | null }>(`/api/requests/${id}/live`),
   keyUrl: (id: number) => `/api/requests/${id}/key`,
   password: (id: number) => req<{ user: string; password: string }>(`/api/requests/${id}/password`),
+  setSchedule: (
+    id: number,
+    payload: { enabled: boolean; start?: string; stop?: string; days?: number[] }
+  ) => req<{ ok: true }>(`/api/requests/${id}/schedule`, { method: 'POST', body: JSON.stringify(payload) }),
 
   adminList: (status?: Status | '') =>
     req<{ requests: VmRequest[] }>(`/api/admin/requests${status ? `?status=${status}` : ''}`).then(

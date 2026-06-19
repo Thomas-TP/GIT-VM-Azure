@@ -8,6 +8,7 @@ import { Button, Card, IconBack, IconPlay, IconReboot, IconStop, IconTrash, Moda
 import { StatusBadge } from '../components/StatusBadge';
 import { OsIcon } from '../components/OsIcon';
 import { ConnectionGuide } from '../components/ConnectionGuide';
+import { SchedulePanel } from '../components/SchedulePanel';
 import { Comments } from '../components/Comments';
 import { useToast } from '../toast';
 
@@ -194,6 +195,13 @@ export function RequestDetail() {
           <p className="py-6 text-center text-sm text-muted-foreground">{t('detail.notReady')}</p>
         )}
       </Card>
+
+      {r.status === 'active' && !r.expired_at && (
+        <Card className="p-5">
+          <Eyebrow>{t('schedule.title')}</Eyebrow>
+          <SchedulePanel request={r} />
+        </Card>
+      )}
 
       <Comments requestId={rid} />
 

@@ -31,6 +31,8 @@ import {
   getKeyForRequest,
   getPasswordForRequest,
   listActiveVms,
+  listScheduledVms,
+  setSchedule,
   listExpired,
   listExpiringSoon,
   markExpired,
@@ -65,6 +67,7 @@ type Vars = { Variables: { user: SessionUser }; Bindings: Env };
 
 const SESSION_TTL = 8 * 60 * 60;
 const OIDC_TTL = 10 * 60;
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const app = new Hono<Vars>();
 
@@ -350,6 +353,34 @@ app.post('/api/requests/:id/reboot', apiAuth, async (c) => {
   }
 });
 
+// Configure the per-VM auto start/stop schedule (owner/admin). Times are 'HH:MM'
+// local Europe/Zurich; days are ISO weekdays (1=Mon..7=Sun). Enforced by the cron.
+app.post('/api/requests/:id/schedule', apiAuth, async (c) => {
+  const user = c.get('user');
+  const id = Number(c.req.param('id'));
+  const r = await getRequest(c.env, id);
+  if (!r) return c.json({ error: 'not_found' }, 404);
+  if (r.user_email !== user.email && user.role !== 'admin') return c.json({ error: 'forbidden' }, 403);
+  const body = await c.req.json().catch(() => ({}));
+  const enabled = !!body.enabled;
+  if (enabled) {
+    const start = String(body.start ?? '');
+    const stop = String(body.stop ?? '');
+    const days = Array.isArray(body.days)
+      ? [...new Set(body.days.map(Number).filter((d: number) => Number.isInteger(d) && d >= 1 && d <= 7))]
+      : [];
+    if (!HHMM.test(start) || !HHMM.test(stop) || start === stop || days.length === 0) {
+      return c.json({ error: 'invalid_schedule' }, 400);
+    }
+    await setSchedule(c.env, id, true, start, stop, (days as number[]).sort((a, b) => a - b).join(','));
+    await audit(c.env, user.email, 'schedule.set', `req:${id}`, `${start}-${stop} d:${days.join('')}`);
+  } else {
+    await setSchedule(c.env, id, false, null, null, null);
+    await audit(c.env, user.email, 'schedule.off', `req:${id}`);
+  }
+  return c.json({ ok: true });
+});
+
 // Live AWS state (state + public IP + uptime) — used by the detail page.
 app.get('/api/requests/:id/live', apiAuth, async (c) => {
   const id = Number(c.req.param('id'));
@@ -526,11 +557,55 @@ async function reconcile(env: Env): Promise<void> {
   }
 }
 
+// Current weekday (1=Mon..7=Sun) and minutes-of-day in Europe/Zurich (DST-aware).
+function zurichNow(): { day: number; minutes: number } {
+  const z = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Zurich' }));
+  return { day: z.getDay() === 0 ? 7 : z.getDay(), minutes: z.getHours() * 60 + z.getMinutes() };
+}
+function parseHHMM(s: string | null): number | null {
+  const m = s ? /^(\d{2}):(\d{2})$/.exec(s) : null;
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+// Minute inside [start, stop) — supports windows that wrap past midnight.
+function inWindow(minutes: number, startM: number, stopM: number): boolean {
+  if (startM === stopM) return false;
+  return startM < stopM ? minutes >= startM && minutes < stopM : minutes >= startM || minutes < stopM;
+}
+
+// Enforce per-VM auto start/stop schedules (Europe/Zurich). Desired-state: inside the
+// window on a selected weekday → the VM should run; otherwise → it should be stopped.
+async function applySchedules(env: Env): Promise<void> {
+  const { day, minutes } = zurichNow();
+  for (const row of await listScheduledVms(env)) {
+    if (!row.aws_instance_id) continue;
+    const startM = parseHHMM(row.schedule_start);
+    const stopM = parseHHMM(row.schedule_stop);
+    if (startM === null || stopM === null) continue;
+    const days = (row.schedule_days ?? '').split(',').map(Number);
+    const shouldRun = days.includes(day) && inWindow(minutes, startM, stopM);
+    try {
+      if (shouldRun && row.state === 'stopped') {
+        await startInstance(env, row.aws_instance_id);
+        await updateVm(env, row.id, 'pending');
+        await audit(env, 'system', 'vm.schedule.start', `req:${row.id}`);
+      } else if (!shouldRun && row.state === 'running') {
+        await stopInstance(env, row.aws_instance_id);
+        await updateVm(env, row.id, 'stopping');
+        await audit(env, 'system', 'vm.schedule.stop', `req:${row.id}`);
+      }
+    } catch (e: any) {
+      await audit(env, 'system', 'vm.schedule.error', `req:${row.id}`, e.message);
+    }
+  }
+}
+
 // Stop all running portal VMs (off-hours cost guardrail). Users can restart them.
+// VMs with their own enabled schedule are skipped (their schedule is authoritative).
 async function scheduledStop(env: Env): Promise<void> {
   if (env.SCHEDULED_STOP !== 'true') return;
   const rows = await listActiveVms(env);
   for (const row of rows) {
+    if (row.schedule_enabled) continue;
     if (row.status === 'active' && row.state === 'running' && row.aws_instance_id) {
       try {
         await stopInstance(env, row.aws_instance_id);
@@ -603,6 +678,7 @@ export default {
       ctx.waitUntil(
         (async () => {
           await reconcile(env);
+          await applySchedules(env);
           await retryFailed(env);
           await enforceExpiry(env);
         })()

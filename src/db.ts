@@ -293,16 +293,57 @@ export interface ActiveVm {
   ssh_user: string | null;
   state: string | null;
   connect_method: string | null;
+  schedule_enabled: number;
 }
 
 // Requests that have (or are getting) a live instance — for reconcile / scheduled stop.
 export async function listActiveVms(env: Env): Promise<ActiveVm[]> {
   const res = await env.DB.prepare(
-    `SELECT r.id, r.status, r.user_email, v.aws_instance_id, v.ssh_user, v.state, v.connect_method
+    `SELECT r.id, r.status, r.user_email, v.aws_instance_id, v.ssh_user, v.state, v.connect_method,
+            r.schedule_enabled
        FROM vm_requests r JOIN vms v ON v.request_id = r.id
       WHERE r.status IN ('provisioning', 'active')`
   ).all<ActiveVm>();
   return res.results ?? [];
+}
+
+export interface ScheduledVm {
+  id: number;
+  user_email: string;
+  aws_instance_id: string | null;
+  state: string | null;
+  schedule_start: string | null;
+  schedule_stop: string | null;
+  schedule_days: string | null;
+}
+
+// Active VMs with an enabled auto start/stop schedule — for the reconciler to enforce.
+export async function listScheduledVms(env: Env): Promise<ScheduledVm[]> {
+  const res = await env.DB.prepare(
+    `SELECT r.id, r.user_email, v.aws_instance_id, v.state,
+            r.schedule_start, r.schedule_stop, r.schedule_days
+       FROM vm_requests r JOIN vms v ON v.request_id = r.id
+      WHERE r.status = 'active' AND r.expired_at IS NULL AND r.schedule_enabled = 1
+        AND v.aws_instance_id IS NOT NULL`
+  ).all<ScheduledVm>();
+  return res.results ?? [];
+}
+
+export async function setSchedule(
+  env: Env,
+  id: number,
+  enabled: boolean,
+  start: string | null,
+  stop: string | null,
+  days: string | null
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE vm_requests
+        SET schedule_enabled = ?2, schedule_start = ?3, schedule_stop = ?4, schedule_days = ?5
+      WHERE id = ?1`
+  )
+    .bind(id, enabled ? 1 : 0, start, stop, days)
+    .run();
 }
 
 export interface ExpirableVm {

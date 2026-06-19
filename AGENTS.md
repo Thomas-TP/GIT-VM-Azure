@@ -64,7 +64,7 @@ src/                      WORKER (API + cron)
   sentry.ts               Report d'erreurs (optionnel)
   types.ts                Env (bindings + secrets) + types partagés worker
 migrations/               D1 : 0001 init · 0002 ssh_keys · 0003 composed_presets · 0004 comments
-                          · 0005 lifecycle (dates) · 0006 windows (connect_method, admin_password)
+                          · 0005 lifecycle (dates) · 0006 windows · 0007 schedule (auto start/stop)
 web/src/                  SPA REACT
   App.tsx                 Routeur + garde d'auth (query /api/me, sinon <Login/>)
   main.tsx                Entrée (providers : QueryClient, Theme, Toast, Router)
@@ -89,15 +89,18 @@ docs/                     Architecture, déploiement, configuration, ADR, analys
 **La DB = état désiré.** Une cron (`*/2 * * * *`) **réconcilie** le réel AWS avec la DB :
 `provisioning → active` (instance running + IP, + email « prête »), détection de **drift**
 (instance supprimée hors portail → `terminated`), **retry** des provisioning échoués (max 3).
-Une cron `0 19 * * *` **arrête** les VM running (garde-fou coûts). À la `end_date`, la VM est
-**supprimée** (terminate instance + clé — [ADR 0008](docs/adr/0008-suppression-auto-a-l-echeance.md),
-supersède 0004) et marquée `expired_at`. **Toute nouvelle automatisation de cycle de vie s'ajoute ici.**
+Une cron `0 19 * * *` **arrête** les VM running (garde-fou coûts, ignore les VM ayant leur propre
+planning). À la `end_date`, la VM est **supprimée** (terminate instance + clé —
+[ADR 0008](docs/adr/0008-suppression-auto-a-l-echeance.md), supersède 0004) et marquée `expired_at`.
+Le cron `*/2` applique aussi les **plannings auto start/stop par VM** (`applySchedules`, état désiré,
+fuseau Europe/Zurich). **Toute nouvelle automatisation de cycle de vie s'ajoute ici.**
 
 ## 6. Modèle de données (D1)
 
 - `users(email PK, name, role[member|admin], created_at)`
 - `vm_requests(id, user_email, purpose, preset, storage, os, region, status, admin_note, decided_by,
-  created_at, decided_at, start_date, end_date, expired_at)`
+  created_at, decided_at, start_date, end_date, expired_at,
+  schedule_enabled, schedule_start, schedule_stop, schedule_days)`
   — `status ∈ pending | approved | rejected | provisioning | active | failed | terminated`
   — « expired » est **dérivé** de `expired_at` (le statut reste `active`), pour ne pas toucher au CHECK.
 - `vms(id, request_id, aws_instance_id, public_ip, state, ssh_key_name, ssh_private_key[chiffré AES-GCM],

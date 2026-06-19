@@ -97,6 +97,10 @@ export interface VmRequest {
   start_date: string | null;
   end_date: string | null;
   expired_at: string | null;
+  schedule_enabled?: number;
+  schedule_start?: string | null;
+  schedule_stop?: string | null;
+  schedule_days?: string | null;
   public_ip?: string | null;
   ssh_key_name?: string | null;
   ssh_user?: string | null;

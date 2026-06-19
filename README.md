@@ -30,6 +30,8 @@ Le tout sur **Cloudflare Workers**.
 - ⏱️ **Cycle de vie** : dates début/fin obligatoires (sélecteur calendrier), **suppression
   automatique à l'échéance** (ADR 0008), extinction nocturne (garde-fou coûts),
   démarrage/arrêt/reboot à la demande.
+- 🕒 **Planification auto** : **démarrage / extinction programmés par l'utilisateur** (jours +
+  horaires, heure de Genève) — la VM s'allume et s'éteint toute seule.
 - 📊 **Console admin** : stats, métriques, recherche/tri/pagination, gestion des rôles, export CSV.
 - 🌗 Thème clair/sombre · 🌐 FR/EN · 🧾 **journal d'audit** sur les actions sensibles.
 
