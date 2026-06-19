@@ -61,7 +61,10 @@ export const OS: Record<string, OsPreset> = {
   al2023: { id: 'al2023', label: 'Amazon Linux 2023', family: 'amazon', ami: 'ami-0255eb7098bd657ae', sshUser: 'ec2-user', connect: 'ssh', description: 'Optimisée pour AWS, base RHEL, support long terme.' },
   rocky9: { id: 'rocky9', label: 'Rocky Linux 9', family: 'rocky', ami: 'ami-03326408f81d44297', sshUser: 'rocky', connect: 'ssh', description: 'Compatible RHEL, parfaite pour l’entreprise (dnf/yum).' },
   alma9: { id: 'alma9', label: 'AlmaLinux 9', family: 'alma', ami: 'ami-03668eab0636b8430', sshUser: 'ec2-user', connect: 'ssh', description: 'Clone RHEL communautaire, stable et pérenne.' },
-  windows2022: { id: 'windows2022', label: 'Windows Server 2022', family: 'windows', ami: 'ami-0cbe390e7c8ac76e2', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 30, description: 'Bureau Windows complet. Connexion par Bureau à distance (RDP).' },
+  windows2022: { id: 'windows2022', label: 'Windows Server 2022', family: 'windows', ami: 'ami-0cbe390e7c8ac76e2', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 30, description: 'Édition serveur : rôles, services, Active Directory, IIS. Accès RDP.' },
+  // « Poste de travail » : Windows Server 2025 avec expérience Bureau (GUI complet via RDP).
+  // EC2 ne propose pas de Windows 10/11 client (licence) ; le Full Base = bureau Windows utilisable.
+  windowsDesktop: { id: 'windowsDesktop', label: 'Windows · Poste de travail', family: 'windows', ami: 'ami-09b747e7c8f4d2cd6', sshUser: 'Administrator', connect: 'rdp', minStorageGb: 30, description: 'Bureau Windows complet (Windows Server 2025, expérience Bureau) pour usage utilisateur. Accès RDP.' },
   // Hidden: kept so existing requests still resolve, removed from the picker
   // (Ubuntu 24.04 is the single Ubuntu choice now).
   ubuntu2204: { id: 'ubuntu2204', label: 'Ubuntu 22.04 LTS', family: 'ubuntu', ami: 'ami-0fd7f34c2a7d8427b', sshUser: 'ubuntu', connect: 'ssh', hidden: true },

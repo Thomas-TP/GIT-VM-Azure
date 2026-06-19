@@ -1,5 +1,10 @@
 # ADR 0004 — Cycle de vie (dates + extinction à l'échéance) via le réconciliateur
 
+> ⛔ **Partiellement remplacé par [ADR 0008](0008-suppression-auto-a-l-echeance.md)** (2026-06-19) :
+> la décision *« arrêter (stop) à l'échéance »* est annulée — à l'échéance la VM est désormais
+> **supprimée (terminate)**. Le reste de cet ADR (dates obligatoires, pattern réconciliateur,
+> email de pré-échéance, stockage UTC) **reste valide**.
+
 **Statut** : Acté (2026-06-19) · **révise la 1ʳᵉ version (auto-destruction)** suite à décision équipe
 
 ## Contexte

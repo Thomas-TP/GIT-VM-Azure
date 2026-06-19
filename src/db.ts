@@ -124,11 +124,46 @@ export async function listRequestsForUser(env: Env, email: string): Promise<VmRe
 
 export async function listRequestsByStatus(env: Env, status?: string): Promise<VmRequestRow[]> {
   // "expired" is derived from expired_at; filtering by it (or by 'active') honors that.
-  const eff = `(CASE WHEN expired_at IS NOT NULL THEN 'expired' ELSE status END)`;
+  // Enriched with the joined vms row so the admin console can show live VM details.
+  const eff = `(CASE WHEN r.expired_at IS NOT NULL THEN 'expired' ELSE r.status END)`;
+  const cols = `r.*, v.public_ip AS public_ip, v.ssh_key_name AS ssh_key_name,
+                v.ssh_user AS ssh_user, v.aws_instance_id AS aws_instance_id,
+                v.state AS vm_state, v.connect_method AS connect_method`;
   const stmt = status
-    ? env.DB.prepare(`SELECT * FROM vm_requests WHERE ${eff} = ?1 ORDER BY created_at DESC`).bind(status)
-    : env.DB.prepare(`SELECT * FROM vm_requests ORDER BY created_at DESC`);
+    ? env.DB.prepare(
+        `SELECT ${cols} FROM vm_requests r LEFT JOIN vms v ON v.request_id = r.id
+          WHERE ${eff} = ?1 ORDER BY r.created_at DESC`
+      ).bind(status)
+    : env.DB.prepare(
+        `SELECT ${cols} FROM vm_requests r LEFT JOIN vms v ON v.request_id = r.id
+          ORDER BY r.created_at DESC`
+      );
   const res = await stmt.all<VmRequestRow>();
+  return res.results ?? [];
+}
+
+export interface AuditEntry {
+  id: number;
+  actor: string;
+  action: string;
+  target: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
+// Recent audit log entries for the admin console (most recent first).
+export async function listAudit(env: Env, limit = 100, action?: string): Promise<AuditEntry[]> {
+  const lim = Math.min(Math.max(limit, 1), 500);
+  const stmt = action
+    ? env.DB.prepare(
+        `SELECT id, actor, action, target, detail, created_at FROM audit_log
+          WHERE action = ?1 ORDER BY created_at DESC, id DESC LIMIT ?2`
+      ).bind(action, lim)
+    : env.DB.prepare(
+        `SELECT id, actor, action, target, detail, created_at FROM audit_log
+          ORDER BY created_at DESC, id DESC LIMIT ?1`
+      ).bind(lim);
+  const res = await stmt.all<AuditEntry>();
   return res.results ?? [];
 }
 
@@ -276,12 +311,14 @@ export interface ExpirableVm {
   end_date: string;
   aws_instance_id: string | null;
   state: string | null;
+  ssh_key_name: string | null;
 }
 
-// Active VMs whose end_date has passed and not yet processed — to STOP (not destroy). ADR 0004.
+// Active VMs whose end_date has passed and not yet processed — to TERMINATE (ADR 0008,
+// supersede ADR 0004). The key name lets the reconciler delete the AWS key pair too.
 export async function listExpired(env: Env): Promise<ExpirableVm[]> {
   const res = await env.DB.prepare(
-    `SELECT r.id, r.user_email, r.end_date, v.aws_instance_id, v.state
+    `SELECT r.id, r.user_email, r.end_date, v.aws_instance_id, v.state, v.ssh_key_name
        FROM vm_requests r JOIN vms v ON v.request_id = r.id
       WHERE r.status = 'active' AND r.expired_at IS NULL AND r.end_date IS NOT NULL
         AND datetime(r.end_date) <= datetime('now')`

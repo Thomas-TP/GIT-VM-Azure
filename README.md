@@ -20,15 +20,16 @@ Le tout sur **Cloudflare Workers**.
 
 - 🔐 **SSO Microsoft Entra ID** (OIDC authorization-code, in-Worker, aucun mot de passe stocké).
 - 🖥️ **Demande de VM en libre-service** depuis un catalogue : **performance × stockage × OS**.
-- 🐧 **6 systèmes** : Ubuntu 24.04, Debian 12, Amazon Linux 2023, Rocky Linux 9, AlmaLinux 9,
-  **Windows Server 2022**.
+- 🐧 **7 systèmes** : Ubuntu 24.04, Debian 12, Amazon Linux 2023, Rocky Linux 9, AlmaLinux 9,
+  **Windows Server 2022** et **Windows poste de travail** (bureau).
 - ✅ **Workflow de validation** (admin approuve/refuse) avec **notifications email**.
 - ⚙️ **Provisioning AWS EC2 automatique** et idempotent via un **réconciliateur** cron.
 - 🔑 **Accès sécurisé par VM** : clé SSH **ed25519 unique chiffrée AES-GCM** (Linux) ou **mot de
   passe RDP** généré et chiffré (Windows) — accessible au seul propriétaire.
 - 📖 **Guides de connexion intégrés** : MobaXterm, Termius (SSH) et Bureau à distance (RDP).
-- ⏱️ **Cycle de vie** : dates début/fin obligatoires, **arrêt automatique à l'échéance**, extinction
-  nocturne (garde-fou coûts), démarrage/arrêt/reboot à la demande.
+- ⏱️ **Cycle de vie** : dates début/fin obligatoires (sélecteur calendrier), **suppression
+  automatique à l'échéance** (ADR 0008), extinction nocturne (garde-fou coûts),
+  démarrage/arrêt/reboot à la demande.
 - 📊 **Console admin** : stats, métriques, recherche/tri/pagination, gestion des rôles, export CSV.
 - 🌗 Thème clair/sombre · 🌐 FR/EN · 🧾 **journal d'audit** sur les actions sensibles.
 

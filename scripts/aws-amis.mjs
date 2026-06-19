@@ -56,8 +56,11 @@ console.log('fedora-42    ', await latest(OWNERS.fedora, 'Fedora-Cloud-Base-*42*
 console.log('fedora-41    ', await latest(OWNERS.fedora, 'Fedora-Cloud-Base-*41*x86_64*'));
 console.log('rocky-9      ', await latest(OWNERS.rocky, 'Rocky-9-EC2-Base-*x86_64*'));
 console.log('alma-9       ', await latest(OWNERS.alma, 'AlmaLinux OS 9*x86_64*'));
+console.log('windows-2025 ', await latest(OWNERS.amazon, 'Windows_Server-2025-English-Full-Base-*'));
 console.log('windows-2022 ', await latest(OWNERS.amazon, 'Windows_Server-2022-English-Full-Base-*'));
 console.log('windows-2019 ', await latest(OWNERS.amazon, 'Windows_Server-2019-English-Full-Base-*'));
+// Note: EC2 ne propose pas de Windows 10/11 client (licence/Dedicated Host). Les éditions
+// "Full Base" embarquent déjà l'expérience Bureau (desktop GUI accessible en RDP).
 
 // Inspect the shared security group ingress (which ports are open?).
 const sg = process.env.AWS_SECURITY_GROUP_ID;

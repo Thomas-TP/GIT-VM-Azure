@@ -5,12 +5,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api';
 import { useToast } from '../toast';
 import type { OsPreset, PresetCatalog } from '../types';
-import { Button, Card, IconBack, IconCheck, Input, Spinner, Textarea } from '../ui';
+import { Button, Card, IconBack, IconCheck, Spinner, Textarea } from '../ui';
 import { OsIcon } from '../components/OsIcon';
+import { DatePicker } from '../components/DatePicker';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const toLocalInput = (d: Date) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+const DAY = 86400000;
+const QUICK = [
+  { key: 'newvm.q1d', ms: DAY },
+  { key: 'newvm.q3d', ms: 3 * DAY },
+  { key: 'newvm.q1w', ms: 7 * DAY },
+  { key: 'newvm.q2w', ms: 14 * DAY },
+  { key: 'newvm.q1m', ms: 30 * DAY },
+];
 
 function Section({ n, title, hint, children }: { n: number; title: string; hint: string; children: React.ReactNode }) {
   return (
@@ -280,12 +290,28 @@ function NewVmForm({
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('newvm.start')}</span>
-                <Input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
+                <DatePicker value={start} onChange={setStart} />
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('newvm.end')}</span>
-                <Input type="datetime-local" value={end} min={start} onChange={(e) => setEnd(e.target.value)} />
+                <DatePicker value={end} min={start} onChange={setEnd} />
               </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">{t('newvm.quickPick')} :</span>
+              {QUICK.map((q) => (
+                <button
+                  key={q.key}
+                  type="button"
+                  onClick={() => {
+                    const base = startDate && startDate.getTime() > Date.now() ? startDate : new Date();
+                    setEnd(toLocalInput(new Date(base.getTime() + q.ms)));
+                  }}
+                  className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  {t(q.key)}
+                </button>
+              ))}
             </div>
             {!datesValid && <p className="text-xs text-amber-500">{t('newvm.endRequired')}</p>}
           </Section>

@@ -72,6 +72,14 @@ export interface Metrics {
   failed: number;
   avgProvisionSeconds: number;
 }
+export interface AuditEntry {
+  id: number;
+  actor: string;
+  action: string;
+  target: string | null;
+  detail: string | null;
+  created_at: string;
+}
 
 export interface VmRequest {
   id: number;

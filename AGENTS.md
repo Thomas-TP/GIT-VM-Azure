@@ -17,7 +17,7 @@
 Plateforme **self-service de provisioning de VM** : un membre se connecte en **SSO Microsoft
 (Entra ID)**, demande une VM depuis un catalogue, un admin approuve, la VM est **provisionnée
 automatiquement sur AWS EC2** (clé SSH unique chiffrée, ou mot de passe RDP pour Windows), puis
-**arrêtée automatiquement à sa date de fin**. Le tout tourne sur **Cloudflare Workers**.
+**supprimée automatiquement à sa date de fin** (ADR 0008). Le tout tourne sur **Cloudflare Workers**.
 
 - **Prod** : <https://git-vm-portal.thomas-prudhomme.workers.dev>
 - **Repo** : <https://github.com/Thomas-TP/GIT-VM>
@@ -90,8 +90,8 @@ docs/                     Architecture, déploiement, configuration, ADR, analys
 `provisioning → active` (instance running + IP, + email « prête »), détection de **drift**
 (instance supprimée hors portail → `terminated`), **retry** des provisioning échoués (max 3).
 Une cron `0 19 * * *` **arrête** les VM running (garde-fou coûts). À la `end_date`, la VM est
-**arrêtée** (pas détruite — [ADR 0004](docs/adr/0004-cycle-de-vie-reconciliateur.md)) et marquée
-`expired_at`. **Toute nouvelle automatisation de cycle de vie s'ajoute ici.**
+**supprimée** (terminate instance + clé — [ADR 0008](docs/adr/0008-suppression-auto-a-l-echeance.md),
+supersède 0004) et marquée `expired_at`. **Toute nouvelle automatisation de cycle de vie s'ajoute ici.**
 
 ## 6. Modèle de données (D1)
 
@@ -110,7 +110,8 @@ Détails + diagrammes : [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 Une demande = **PERF × STORAGE × OS**. Les AMIs sont des **IDs concrets `eu-central-2` vérifiés**
 (via `scripts/aws-amis.mjs`). OS actuels : Ubuntu 24.04 LTS, Debian 12, Amazon Linux 2023, Rocky
-Linux 9, AlmaLinux 9, **Windows Server 2022** (RDP). Linux → SSH (clé ed25519 unique). Windows → RDP
+Linux 9, AlmaLinux 9, **Windows Server 2022** et **Windows · Poste de travail** (Server 2025, bureau)
+— les deux en RDP. Linux → SSH (clé ed25519 unique). Windows → RDP
 (mot de passe admin généré via UserData, chiffré, port 3389). Voir
 [ADR 0007](docs/adr/0007-catalogue-os-et-windows-rdp.md).
 

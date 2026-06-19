@@ -38,6 +38,7 @@ import {
   setUserRole,
   addComment,
   listComments,
+  listAudit,
   metrics,
 } from './db';
 import {
@@ -407,6 +408,12 @@ app.get('/api/admin/users', apiAdmin, async (c) => {
   return c.json({ users: await listUsers(c.env) });
 });
 
+app.get('/api/admin/audit', apiAdmin, async (c) => {
+  const limit = Number(c.req.query('limit') ?? '100');
+  const action = c.req.query('action') || undefined;
+  return c.json({ entries: await listAudit(c.env, isNaN(limit) ? 100 : limit, action) });
+});
+
 app.post('/api/admin/users/:email/role', apiAdmin, async (c) => {
   const admin = c.get('user');
   const email = decodeURIComponent(c.req.param('email')).toLowerCase();
@@ -554,17 +561,18 @@ async function retryFailed(env: Env): Promise<void> {
   }
 }
 
-// Lifecycle: at end_date, STOP the VM (no destruction — ADR 0004) and mark it
-// 'expired'. Also send a one-time heads-up email 24h before the deadline.
+// Lifecycle: at end_date, TERMINATE the VM (instance + SSH key destroyed) and mark it
+// 'expired'. ADR 0008 supersedes ADR 0004 (auto-suppression demandée par le client).
+// A one-time heads-up email is sent 24h before the deadline so users can back up.
 async function enforceExpiry(env: Env): Promise<void> {
   for (const row of await listExpired(env)) {
     try {
-      if (row.aws_instance_id && row.state === 'running') {
-        await stopInstance(env, row.aws_instance_id);
-        await updateVm(env, row.id, 'stopping');
-      }
+      if (row.aws_instance_id) await terminateInstance(env, row.aws_instance_id);
+      if (row.ssh_key_name) await deleteKeyPair(env, row.ssh_key_name);
+      await updateVm(env, row.id, 'terminated');
       await markExpired(env, row.id);
-      await audit(env, 'system', 'vm.expired', `req:${row.id}`, row.end_date ?? '');
+      await setRequestStatus(env, row.id, 'terminated');
+      await audit(env, 'system', 'vm.expired.terminated', `req:${row.id}`, row.aws_instance_id ?? '');
       await notifyUserExpired(env, row.user_email, row.id);
     } catch (e: any) {
       await audit(env, 'system', 'vm.expire.error', `req:${row.id}`, e.message);

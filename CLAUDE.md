@@ -24,7 +24,7 @@ Le reste de la documentation :
 | **Ven. 26 juin 2026** | Démo **live** 10 min + remise des livrables |
 
 Parcours de démo de bout en bout (doit fonctionner) :
-`demande → validation → notification → provisioning → connexion (SSH/RDP) → arrêt à l'échéance`.
+`demande → validation → notification → provisioning → connexion (SSH/RDP) → suppression à l'échéance`.
 **Plan B exigé** par le cahier des charges (vidéo + environnement de secours).
 
 ### Cadre
@@ -37,7 +37,7 @@ Binôme : Thomas P. & Abderahmane. Conditions entreprise réelle, client = GIT.
 
 ### État des exigences (Must)
 
-- ✅ Dates début/fin + **arrêt automatique à l'échéance** (réconciliateur).
+- ✅ Dates début/fin (calendrier) + **suppression automatique à l'échéance** (réconciliateur, ADR 0008).
 - ✅ Catalogue OS élargi + **Windows / RDP** (ADR 0007).
 - ✅ Refonte UI : pages **Mes VM** (`/`) et **Créer une VM** (`/new`) + guides de connexion.
 - 🔴 Reste : **login** (config Entra — [diagnostic](docs/analyse/04-diagnostic-login.md)),

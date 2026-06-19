@@ -1,4 +1,4 @@
-import type { PresetCatalog, User, VmRequest, Status, AdminUser, Comment, Metrics } from './types';
+import type { PresetCatalog, User, VmRequest, Status, AdminUser, Comment, Metrics, AuditEntry } from './types';
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -59,6 +59,8 @@ export const api = {
   adminStats: () => req<{ stats: Record<string, number> }>('/api/admin/stats').then((r) => r.stats),
   adminMetrics: () => req<{ metrics: Metrics }>('/api/admin/metrics').then((r) => r.metrics),
   adminUsers: () => req<{ users: AdminUser[] }>('/api/admin/users').then((r) => r.users),
+  adminAudit: (limit = 150) =>
+    req<{ entries: AuditEntry[] }>(`/api/admin/audit?limit=${limit}`).then((r) => r.entries),
   setUserRole: (email: string, role: 'admin' | 'member') =>
     req<{ ok: true }>(`/api/admin/users/${encodeURIComponent(email)}/role`, {
       method: 'POST',
