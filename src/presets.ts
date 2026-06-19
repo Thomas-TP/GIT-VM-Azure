@@ -11,12 +11,16 @@ export interface PerfPreset {
   hourlyUsd: number;
   description?: string;
   recommended?: boolean;
+  /** Kept for resolving existing requests but hidden from the picker. */
+  hidden?: boolean;
 }
 export interface StoragePreset {
   id: string;
   label: string;
   sizeGb: number;
   description?: string;
+  recommended?: boolean;
+  hidden?: boolean;
 }
 export interface OsPreset {
   id: string;
@@ -36,21 +40,31 @@ export interface OsPreset {
   hidden?: boolean;
 }
 
+// Free-Tier only: the AWS account is restricted to free-tier-eligible instance
+// types (verified via scripts/aws-freetier.mjs). x86_64 only (our AMIs are x86_64,
+// so the t4g/ARM free types are excluded). Legacy ids are kept hidden and remapped
+// to a free-tier type so existing requests still provision.
 export const PERF: Record<string, PerfPreset> = {
-  micro: { id: 'micro', label: 'Micro', instanceType: 't3.micro', vcpu: 2, ramGb: 1, hourlyUsd: 0.0136, description: 'Tests légers, scripts, apprentissage.' },
-  eco: { id: 'eco', label: 'Eco', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.027, description: 'Petits services, environnements de dev.' },
-  std: { id: 'std', label: 'Standard', instanceType: 't3.medium', vcpu: 2, ramGb: 4, hourlyUsd: 0.054, description: 'Polyvalent — bon défaut pour la plupart des cours.', recommended: true },
-  perf: { id: 'perf', label: 'Performance', instanceType: 't3.large', vcpu: 2, ramGb: 8, hourlyUsd: 0.107, description: 'Compilation, conteneurs, charges moyennes.' },
-  pro: { id: 'pro', label: 'Pro', instanceType: 't3.xlarge', vcpu: 4, ramGb: 16, hourlyUsd: 0.214, description: 'Bases de données, builds lourds, multitâche.' },
-  max: { id: 'max', label: 'Max', instanceType: 't3.2xlarge', vcpu: 8, ramGb: 32, hourlyUsd: 0.4288, description: 'Data, ML léger, environnements exigeants.' },
+  micro: { id: 'micro', label: 'Micro', instanceType: 't3.micro', vcpu: 2, ramGb: 1, hourlyUsd: 0.0136, description: 'Free Tier — tests légers, scripts, apprentissage.' },
+  small: { id: 'small', label: 'Small', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, description: 'Free Tier — petits services, dev, la plupart des cours.', recommended: true },
+  flex: { id: 'flex', label: 'Flex', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, description: 'Free Tier — 4 Go, plus confortable (Windows, conteneurs).' },
+  // Legacy (hidden) — remappés vers un type Free Tier pour les demandes existantes.
+  eco: { id: 'eco', label: 'Eco', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, hidden: true },
+  std: { id: 'std', label: 'Standard', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, hidden: true },
+  perf: { id: 'perf', label: 'Performance', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, hidden: true },
+  pro: { id: 'pro', label: 'Pro', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, hidden: true },
+  max: { id: 'max', label: 'Max', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, hidden: true },
 };
 
+// Free-Tier EBS = 30 Go. On reste ≤ 30 Go ; les tailles supérieures (payantes) sont
+// conservées masquées pour résoudre les demandes existantes.
 export const STORAGE: Record<string, StoragePreset> = {
-  s20: { id: 's20', label: '20 Go SSD', sizeGb: 20, description: 'Suffisant pour un OS Linux + outils.' },
-  s50: { id: 's50', label: '50 Go SSD', sizeGb: 50, description: 'Confortable, recommandé par défaut.' },
-  s100: { id: 's100', label: '100 Go SSD', sizeGb: 100, description: 'Projets avec données / conteneurs.' },
-  s250: { id: 's250', label: '250 Go SSD', sizeGb: 250, description: 'Gros jeux de données, médias.' },
-  s500: { id: 's500', label: '500 Go SSD', sizeGb: 500, description: 'Stockage important, archives.' },
+  s20: { id: 's20', label: '20 Go SSD', sizeGb: 20, description: 'Free Tier — suffisant pour un OS Linux + outils.' },
+  s30: { id: 's30', label: '30 Go SSD', sizeGb: 30, description: 'Free Tier — maximum gratuit, requis pour Windows.', recommended: true },
+  s50: { id: 's50', label: '50 Go SSD', sizeGb: 50, hidden: true },
+  s100: { id: 's100', label: '100 Go SSD', sizeGb: 100, hidden: true },
+  s250: { id: 's250', label: '250 Go SSD', sizeGb: 250, hidden: true },
+  s500: { id: 's500', label: '500 Go SSD', sizeGb: 500, hidden: true },
 };
 
 // All AMIs are concrete eu-central-2 IDs verified via DescribeImages

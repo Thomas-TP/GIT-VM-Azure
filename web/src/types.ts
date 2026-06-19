@@ -15,12 +15,15 @@ export interface PerfPreset {
   hourlyUsd: number;
   description?: string;
   recommended?: boolean;
+  hidden?: boolean;
 }
 export interface StoragePreset {
   id: string;
   label: string;
   sizeGb: number;
   description?: string;
+  recommended?: boolean;
+  hidden?: boolean;
 }
 export type OsFamily = 'ubuntu' | 'debian' | 'amazon' | 'rocky' | 'alma' | 'windows';
 export interface OsPreset {

@@ -109,9 +109,12 @@ function NewVmForm({
   toast: ReturnType<typeof useToast>;
 }) {
   const { t } = useTranslation();
+  const perfList = useMemo(() => catalog.perf.filter((p) => !p.hidden), [catalog.perf]);
+  const storageList = useMemo(() => catalog.storage.filter((s) => !s.hidden), [catalog.storage]);
   const osList = useMemo(() => catalog.os.filter((o) => !o.hidden), [catalog.os]);
-  const defaultPerf = catalog.perf.find((p) => p.recommended)?.id ?? catalog.perf[0]?.id ?? '';
-  const defaultStorage = catalog.storage.find((s) => s.sizeGb >= 50)?.id ?? catalog.storage[0]?.id ?? '';
+  const defaultPerf = perfList.find((p) => p.recommended)?.id ?? perfList[0]?.id ?? '';
+  const defaultStorage =
+    storageList.find((s) => s.recommended)?.id ?? storageList.find((s) => s.sizeGb >= 30)?.id ?? storageList[0]?.id ?? '';
   const defaultOs = osList.find((o) => o.recommended)?.id ?? osList[0]?.id ?? '';
 
   const [perf, setPerf] = useState(defaultPerf);
@@ -200,7 +203,7 @@ function NewVmForm({
         <div className="space-y-8">
           <Section n={1} title={t('newvm.perf')} hint={t('newvm.perfHint')}>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {catalog.perf.map((p) => (
+              {perfList.map((p) => (
                 <Choice key={p.id} selected={perf === p.id} onClick={() => setPerf(p.id)}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">{p.label}</span>
@@ -218,7 +221,7 @@ function NewVmForm({
 
           <Section n={2} title={t('newvm.storage')} hint={t('newvm.storageHint')}>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {catalog.storage.map((s) => {
+              {storageList.map((s) => {
                 const tooSmall = minGb > 0 && s.sizeGb < minGb;
                 return (
                   <Choice key={s.id} selected={storage === s.id} disabled={tooSmall} onClick={() => setStorage(s.id)}>

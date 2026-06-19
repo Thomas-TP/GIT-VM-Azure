@@ -111,7 +111,10 @@ Détails + diagrammes : [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## 7. Catalogue (src/presets.ts)
 
-Une demande = **PERF × STORAGE × OS**. Les AMIs sont des **IDs concrets `eu-central-2` vérifiés**
+Une demande = **PERF × STORAGE × OS**. ⚠️ Le compte AWS est **Free-Tier uniquement** : `PERF` se
+limite aux types éligibles **x86_64** (`t3.micro`, `t3.small`, `c7i-flex.large` — `scripts/aws-freetier.mjs`)
+et `STORAGE` à **≤ 30 Go** (les ARM `t4g.*` sont exclus, nos AMIs étant x86_64).
+Les AMIs sont des **IDs concrets `eu-central-2` vérifiés**
 (via `scripts/aws-amis.mjs`). OS actuels : Ubuntu 24.04 LTS, Debian 12, Amazon Linux 2023, Rocky
 Linux 9, AlmaLinux 9, **Windows Server 2022** et **Windows · Poste de travail** (Server 2025, bureau)
 — les deux en RDP. Linux → SSH (clé ed25519 unique). Windows → RDP
