@@ -39,10 +39,17 @@ export interface OsPreset {
   hidden?: boolean;
 }
 
+export interface CoursePreset {
+  id: string;
+  label: string;
+  description: string;
+  tools: string[];
+}
 export interface PresetCatalog {
   perf: PerfPreset[];
   storage: StoragePreset[];
   os: OsPreset[];
+  courses: CoursePreset[];
   storageUsdGbMonth: number;
   region: string;
   grafanaUrl?: string;
@@ -102,6 +109,7 @@ export interface VmRequest {
   os: string | null;
   region: string;
   status: Status;
+  course?: string | null;
   admin_note: string | null;
   decided_by: string | null;
   created_at: string;

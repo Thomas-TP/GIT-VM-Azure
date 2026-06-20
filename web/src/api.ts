@@ -36,11 +36,12 @@ export const api = {
     os: string,
     purpose: string,
     startDate: string | null,
-    endDate: string
+    endDate: string,
+    course = ''
   ) =>
     req<{ id: number }>('/api/requests', {
       method: 'POST',
-      body: JSON.stringify({ perf, storage, os, purpose, startDate, endDate }),
+      body: JSON.stringify({ perf, storage, os, purpose, startDate, endDate, course }),
     }),
   getRequest: (id: number) => req<{ request: VmRequest }>(`/api/requests/${id}`).then((r) => r.request),
   requestExtension: (id: number, until: string) =>

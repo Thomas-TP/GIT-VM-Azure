@@ -120,6 +120,10 @@ Linux 9, AlmaLinux 9, **Windows Server 2022** et **Windows · Poste de travail**
 (mot de passe admin généré via UserData, chiffré, port 3389). Voir
 [ADR 0007](docs/adr/0007-catalogue-os-et-windows-rdp.md).
 
+**Bundles d'outils par cours** (`COURSES` dans `src/presets.ts`) : optionnel, préinstalle les
+logiciels d'un cours (Cloud, Web, Data, Cybersécurité, …) sur la VM **Linux** via cloud-init
+(user-data) au premier démarrage. Ignoré sur Windows.
+
 **Rafraîchir les AMIs** (quand elles vieillissent) : lancer `scripts/aws-amis.mjs` et reporter les IDs.
 
 ## 8. Commandes

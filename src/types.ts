@@ -47,6 +47,7 @@ export interface VmRequestRow {
   os: string | null;
   region: string;
   status: string;
+  course: string | null;
   admin_note: string | null;
   decided_by: string | null;
   created_at: string;

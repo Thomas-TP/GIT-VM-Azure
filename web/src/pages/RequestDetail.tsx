@@ -101,6 +101,7 @@ export function RequestDetail() {
   const perfDef = cat?.perf.find((p) => p.id === r.preset);
   const storageDef = cat?.storage.find((s) => s.id === r.storage);
   const osDef = cat?.os.find((o) => o.id === r.os);
+  const courseDef = cat?.courses.find((c) => c.id === r.course);
   const connect = (r.connect_method as 'ssh' | 'rdp') ?? osDef?.connect ?? 'ssh';
   const sshUser = r.ssh_user ?? osDef?.sshUser ?? 'ubuntu';
   const keyName = r.ssh_key_name ?? `vm-portal-req-${r.id}`;
@@ -165,8 +166,16 @@ export function RequestDetail() {
             <Row label={t('detail.memory')}>{perfDef ? `${perfDef.ramGb} Go` : '—'}</Row>
             <Row label={t('detail.disk')}>{storageDef?.label ?? r.storage ?? '—'}</Row>
             <Row label={t('detail.connectMethod')}>{connect === 'rdp' ? 'RDP' : 'SSH'}</Row>
+            {courseDef && <Row label={t('newvm.course')}>{courseDef.label}</Row>}
             <Row label={t('common.region')} mono>{r.region}</Row>
           </div>
+          {courseDef && (
+            <div className="mt-3 flex flex-wrap gap-1 border-t border-border pt-3">
+              {courseDef.tools.map((tool) => (
+                <span key={tool} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{tool}</span>
+              ))}
+            </div>
+          )}
         </Card>
 
         {/* Request / lifecycle */}

@@ -122,13 +122,14 @@ export async function createRequest(
   os: string,
   region: string,
   startDate: string | null,
-  endDate: string
+  endDate: string,
+  course: string | null = null
 ): Promise<number> {
   const res = await env.DB.prepare(
-    `INSERT INTO vm_requests (user_email, purpose, preset, storage, os, region, start_date, end_date)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+    `INSERT INTO vm_requests (user_email, purpose, preset, storage, os, region, start_date, end_date, course)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
   )
-    .bind(email, purpose, perf, storage, os, region, startDate, endDate)
+    .bind(email, purpose, perf, storage, os, region, startDate, endDate, course)
     .run();
   return res.meta.last_row_id as number;
 }

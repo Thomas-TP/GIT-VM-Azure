@@ -7,9 +7,12 @@ import {
   PERF,
   STORAGE,
   OS,
+  COURSES,
   isValidPerf,
   isValidStorage,
   isValidOs,
+  isValidCourse,
+  buildCourseUserData,
   estimateMonthlyUsd,
   STORAGE_USD_GB_MONTH,
 } from './presets';
@@ -160,6 +163,9 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
     // EC2Launch v2 runs this on first boot; single-quoted so the password is literal.
     userData = `<powershell>\nnet user Administrator '${password}'\n</powershell>\n<persist>false</persist>`;
     encPassword = await encryptSecret(env.SESSION_SECRET, password);
+  } else {
+    // Linux: preinstall the chosen course's tools via cloud-init (if any).
+    userData = buildCourseUserData(req.course);
   }
 
   const kp = await createKeyPair(env, req.id, isWindows ? 'rsa' : 'ed25519');
@@ -239,6 +245,7 @@ app.get('/api/presets', (c) =>
     perf: Object.values(PERF),
     storage: Object.values(STORAGE),
     os: Object.values(OS),
+    courses: Object.values(COURSES).map(({ id, label, description, tools }) => ({ id, label, description, tools })),
     storageUsdGbMonth: STORAGE_USD_GB_MONTH,
     region: c.env.AWS_REGION,
     grafanaUrl: c.env.GRAFANA_URL ?? '',
@@ -257,7 +264,8 @@ app.post('/api/requests', apiAuth, async (c) => {
   const storage = String(body.storage ?? '');
   const os = String(body.os ?? '');
   const purpose = String(body.purpose ?? '').trim();
-  if (!isValidPerf(perf) || !isValidStorage(storage) || !isValidOs(os) || !purpose) {
+  const course = String(body.course ?? '');
+  if (!isValidPerf(perf) || !isValidStorage(storage) || !isValidOs(os) || !isValidCourse(course) || !purpose) {
     return c.json({ error: 'invalid_request' }, 400);
   }
   // Some OS need a minimum root disk (Windows ≥ 30 Go).
@@ -282,9 +290,9 @@ app.post('/api/requests', apiAuth, async (c) => {
   }
   const id = await createRequest(
     c.env, user.email, purpose, perf, storage, os, c.env.AWS_REGION,
-    start ? start.toISOString() : null, end.toISOString()
+    start ? start.toISOString() : null, end.toISOString(), course || null
   );
-  await audit(c.env, user.email, 'request.create', `req:${id}`, `${perf}/${storage}/${os} end:${end.toISOString()}`);
+  await audit(c.env, user.email, 'request.create', `req:${id}`, `${perf}/${storage}/${os}${course ? `/${course}` : ''} end:${end.toISOString()}`);
   await notifyAdminsInApp(c.env, 'request_new', `/requests/${id}`);
   c.executionCtx.waitUntil(notifyAdminsNewRequest(c.env, id, user.email, PERF[perf].label));
   return c.json({ id }, 201);

@@ -84,6 +84,134 @@ export const OS: Record<string, OsPreset> = {
   ubuntu2204: { id: 'ubuntu2204', label: 'Ubuntu 22.04 LTS', family: 'ubuntu', ami: 'ami-0fd7f34c2a7d8427b', sshUser: 'ubuntu', connect: 'ssh', hidden: true },
 };
 
+// Bundles d'outils par cours, préinstallés sur la VM (Linux) via cloud-init au
+// premier démarrage. Optimisé Ubuntu/Debian (apt) + installeurs officiels
+// (distro-agnostiques) pour les outils cloud. `install` = corps bash exécuté
+// après COURSE_SCRIPT_HEADER. Tout est tolérant aux erreurs (|| true).
+export interface CoursePreset {
+  id: string;
+  label: string;
+  description: string;
+  tools: string[];
+  install: string;
+}
+
+export const COURSE_SCRIPT_HEADER = [
+  '#!/bin/bash',
+  'set -x',
+  'export DEBIAN_FRONTEND=noninteractive',
+  'apt-get update -y || true',
+  'APT="apt-get install -y"',
+].join('\n');
+
+const PIP = 'pip3 install --break-system-packages';
+
+export const COURSES: Record<string, CoursePreset> = {
+  cloud: {
+    id: 'cloud',
+    label: 'Cloud & DevOps',
+    description: 'Azure CLI, AWS CLI, Google Cloud CLI, Terraform, kubectl, Docker, Helm, Ansible.',
+    tools: ['Azure CLI', 'AWS CLI', 'gcloud', 'Terraform', 'kubectl', 'Docker', 'Helm', 'Ansible'],
+    install: [
+      '$APT git curl unzip apt-transport-https ca-certificates gnupg lsb-release || true',
+      'curl -fsSL https://get.docker.com | sh || true',
+      'curl -sL https://aka.ms/InstallAzureCLIDeb | bash || true',
+      'curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/aws.zip && unzip -q /tmp/aws.zip -d /tmp && /tmp/aws/install || true',
+      'curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp.gpg && echo "deb [signed-by=/usr/share/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" > /etc/apt/sources.list.d/hashicorp.list && apt-get update -y && $APT terraform || true',
+      'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && install -m 0755 kubectl /usr/local/bin/kubectl || true',
+      'curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true',
+      '$APT ansible || true',
+    ].join('\n'),
+  },
+  web: {
+    id: 'web',
+    label: 'Développement Web',
+    description: 'Node.js LTS, npm, Git, Nginx, Python 3, build-essential.',
+    tools: ['Node.js LTS', 'npm', 'Git', 'Nginx', 'Python 3', 'build-essential'],
+    install: [
+      '$APT git build-essential nginx python3 python3-pip || true',
+      'curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && $APT nodejs || true',
+    ].join('\n'),
+  },
+  data: {
+    id: 'data',
+    label: 'Data Science & IA',
+    description: 'Python 3, Jupyter, NumPy, pandas, matplotlib, scikit-learn, R.',
+    tools: ['Python 3', 'Jupyter', 'NumPy', 'pandas', 'matplotlib', 'scikit-learn', 'R'],
+    install: [
+      '$APT python3 python3-pip python3-venv r-base || true',
+      `${PIP} jupyter numpy pandas matplotlib scikit-learn seaborn || pip3 install jupyter numpy pandas matplotlib scikit-learn seaborn || true`,
+    ].join('\n'),
+  },
+  containers: {
+    id: 'containers',
+    label: 'Conteneurs & Kubernetes',
+    description: 'Docker, kubectl, minikube, Helm, k9s.',
+    tools: ['Docker', 'kubectl', 'minikube', 'Helm', 'k9s'],
+    install: [
+      'curl -fsSL https://get.docker.com | sh || true',
+      'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && install -m 0755 kubectl /usr/local/bin/kubectl || true',
+      'curl -Lo /usr/local/bin/minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && chmod +x /usr/local/bin/minikube || true',
+      'curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true',
+    ].join('\n'),
+  },
+  cyber: {
+    id: 'cyber',
+    label: 'Cybersécurité',
+    description: 'nmap, tshark, hydra, john, tcpdump, nikto, net-tools, whois, dnsutils.',
+    tools: ['nmap', 'tshark', 'hydra', 'john', 'tcpdump', 'nikto', 'net-tools', 'whois'],
+    install: ['$APT nmap tshark hydra john tcpdump nikto net-tools whois dnsutils || true'].join('\n'),
+  },
+  db: {
+    id: 'db',
+    label: 'Bases de données',
+    description: 'PostgreSQL, MariaDB (MySQL), Redis, SQLite.',
+    tools: ['PostgreSQL', 'MariaDB', 'Redis', 'SQLite'],
+    install: ['$APT postgresql mariadb-server redis-server sqlite3 || true'].join('\n'),
+  },
+  sysadmin: {
+    id: 'sysadmin',
+    label: 'Système & Réseau',
+    description: 'net-tools, tcpdump, nmap, htop, tmux, rsync, iperf3, traceroute, vim.',
+    tools: ['net-tools', 'tcpdump', 'nmap', 'htop', 'tmux', 'rsync', 'iperf3', 'traceroute'],
+    install: ['$APT net-tools tcpdump nmap htop tmux rsync openssh-client iperf3 traceroute vim || true'].join('\n'),
+  },
+  cpp: {
+    id: 'cpp',
+    label: 'Programmation C / C++',
+    description: 'gcc, g++, gdb, make, cmake, valgrind, build-essential.',
+    tools: ['gcc', 'g++', 'gdb', 'make', 'cmake', 'valgrind'],
+    install: ['$APT build-essential gdb cmake valgrind || true'].join('\n'),
+  },
+  java: {
+    id: 'java',
+    label: 'Java',
+    description: 'OpenJDK 17, Maven, Gradle.',
+    tools: ['OpenJDK 17', 'Maven', 'Gradle'],
+    install: ['$APT openjdk-17-jdk maven gradle || true'].join('\n'),
+  },
+  python: {
+    id: 'python',
+    label: 'Python',
+    description: 'Python 3, pip, venv, pipx, IPython, Jupyter.',
+    tools: ['Python 3', 'pip', 'venv', 'pipx', 'IPython', 'Jupyter'],
+    install: [
+      '$APT python3 python3-pip python3-venv pipx || true',
+      `${PIP} ipython jupyter || pip3 install ipython jupyter || true`,
+    ].join('\n'),
+  },
+};
+
+export const isValidCourse = (id: string) => id === '' || Object.prototype.hasOwnProperty.call(COURSES, id);
+
+// cloud-init user-data installing a course's tools (Linux only). undefined if no course.
+export function buildCourseUserData(courseId: string | null | undefined): string | undefined {
+  if (!courseId) return undefined;
+  const c = COURSES[courseId];
+  if (!c) return undefined;
+  return `${COURSE_SCRIPT_HEADER}\n${c.install}\n`;
+}
+
 export const STORAGE_USD_GB_MONTH = 0.0952; // gp3, eu-central-2 (approx)
 const HOURS_PER_MONTH = 730;
 

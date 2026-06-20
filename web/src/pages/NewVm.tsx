@@ -120,6 +120,7 @@ function NewVmForm({
   const [perf, setPerf] = useState(defaultPerf);
   const [storage, setStorage] = useState(defaultStorage);
   const [os, setOs] = useState(defaultOs);
+  const [course, setCourse] = useState('');
   const [purpose, setPurpose] = useState('');
   const [start, setStart] = useState(() => toLocalInput(new Date()));
   const [end, setEnd] = useState(() => toLocalInput(new Date(Date.now() + 7 * 86400000)));
@@ -136,6 +137,13 @@ function NewVmForm({
       if (first) setStorage(first.id);
     }
   }, [minGb, storage, catalog.storage]);
+
+  // Course tool bundles are Linux-only (cloud-init). Clear when switching to Windows.
+  const osIsWindows = osDef?.connect === 'rdp';
+  useEffect(() => {
+    if (osIsWindows && course) setCourse('');
+  }, [osIsWindows, course]);
+  const courseDef = catalog.courses.find((c) => c.id === course);
 
   const perfDef = catalog.perf.find((p) => p.id === perf);
   const storageDef = catalog.storage.find((s) => s.id === storage);
@@ -173,7 +181,8 @@ function NewVmForm({
         os,
         purpose.trim(),
         start ? new Date(start).toISOString() : null,
-        new Date(end).toISOString()
+        new Date(end).toISOString(),
+        osIsWindows ? '' : course
       ),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['requests'] });
@@ -258,7 +267,34 @@ function NewVmForm({
             </div>
           </Section>
 
-          <Section n={4} title={t('newvm.schedule')} hint={t('newvm.scheduleHint')}>
+          <Section n={4} title={t('newvm.course')} hint={t('newvm.courseHint')}>
+            {osIsWindows ? (
+              <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                {t('newvm.courseWindows')}
+              </p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Choice selected={course === ''} onClick={() => setCourse('')}>
+                  <div className="font-medium">{t('newvm.courseNone')}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{t('newvm.courseNoneHint')}</div>
+                </Choice>
+                {catalog.courses.map((c) => (
+                  <Choice key={c.id} selected={course === c.id} onClick={() => setCourse(c.id)}>
+                    <div className="font-medium">{c.label}</div>
+                    <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{c.description}</div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {c.tools.slice(0, 6).map((tool) => (
+                        <span key={tool} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{tool}</span>
+                      ))}
+                      {c.tools.length > 6 && <span className="text-[10px] text-muted-foreground">+{c.tools.length - 6}</span>}
+                    </div>
+                  </Choice>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          <Section n={5} title={t('newvm.schedule')} hint={t('newvm.scheduleHint')}>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('newvm.start')}</span>
@@ -288,7 +324,7 @@ function NewVmForm({
             {!datesValid && <p className="text-xs text-amber-500">{t('newvm.endRequired')}</p>}
           </Section>
 
-          <Section n={5} title={t('newvm.purpose')} hint={t('newvm.purposeHint')}>
+          <Section n={6} title={t('newvm.purpose')} hint={t('newvm.purposeHint')}>
             <Textarea
               rows={3}
               value={purpose}
@@ -319,6 +355,7 @@ function NewVmForm({
                 }
               />
               <SumRow label={t('newvm.connection')} value={osDef?.connect === 'rdp' ? 'RDP' : 'SSH'} />
+              {courseDef && !osIsWindows && <SumRow label={t('newvm.course')} value={courseDef.label} />}
               <SumRow label={t('newvm.duration')} value={durationLabel} />
             </div>
 
