@@ -10,6 +10,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { OsIcon } from '../components/OsIcon';
 import { ConnectionGuide } from '../components/ConnectionGuide';
 import { SchedulePanel } from '../components/SchedulePanel';
+import { ExtensionPanel } from '../components/ExtensionPanel';
 import { Comments } from '../components/Comments';
 import { useToast } from '../toast';
 
@@ -38,6 +39,7 @@ export function RequestDetail() {
     queryFn: () => api.getRequest(rid),
     refetchInterval: (query) => (query.state.data?.status === 'provisioning' ? 5000 : false),
   });
+  const meQ = useQuery({ queryKey: ['me'], queryFn: api.me });
   const presetsQ = useQuery({ queryKey: ['presets'], queryFn: api.presets });
   const liveQ = useQuery({
     queryKey: ['live', rid],
@@ -212,10 +214,20 @@ export function RequestDetail() {
       </Card>
 
       {r.status === 'active' && !r.expired_at && (
-        <Card className="p-5">
-          <Eyebrow>{t('schedule.title')}</Eyebrow>
-          <SchedulePanel request={r} />
-        </Card>
+        <>
+          <Card className="p-5">
+            <Eyebrow>{t('extension.title')}</Eyebrow>
+            <ExtensionPanel
+              request={r}
+              isAdmin={meQ.data?.role === 'admin'}
+              isOwner={meQ.data?.email === r.user_email}
+            />
+          </Card>
+          <Card className="p-5">
+            <Eyebrow>{t('schedule.title')}</Eyebrow>
+            <SchedulePanel request={r} />
+          </Card>
+        </>
       )}
 
       <Comments requestId={rid} />

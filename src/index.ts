@@ -36,6 +36,9 @@ import {
   listExpired,
   listExpiringSoon,
   markExpired,
+  requestExtension,
+  approveExtension,
+  rejectExtension,
   listUsers,
   setUserRole,
   addComment,
@@ -61,6 +64,9 @@ import {
   notifyUserReady,
   notifyUserExpiring,
   notifyUserExpired,
+  notifyAdminsExtension,
+  notifyUserExtensionApproved,
+  notifyUserExtensionRejected,
 } from './email';
 
 type Vars = { Variables: { user: SessionUser }; Bindings: Env };
@@ -353,6 +359,26 @@ app.post('/api/requests/:id/reboot', apiAuth, async (c) => {
   }
 });
 
+// Request an extension of the VM lifetime (owner/admin). Must be done BEFORE
+// the end date (expiry deletes the VM). An admin then approves/rejects.
+app.post('/api/requests/:id/extend', apiAuth, async (c) => {
+  const user = c.get('user');
+  const id = Number(c.req.param('id'));
+  const r = await getRequest(c.env, id);
+  if (!r) return c.json({ error: 'not_found' }, 404);
+  if (r.user_email !== user.email && user.role !== 'admin') return c.json({ error: 'forbidden' }, 403);
+  if (r.status !== 'active' || r.expired_at) return c.json({ error: 'not_extendable' }, 409);
+  const body = await c.req.json().catch(() => ({}));
+  const until = body.until ? new Date(String(body.until)) : null;
+  const currentEnd = r.end_date ? new Date(r.end_date) : null;
+  if (!until || isNaN(until.getTime()) || until.getTime() <= Date.now()) return c.json({ error: 'invalid_date' }, 400);
+  if (currentEnd && until.getTime() <= currentEnd.getTime()) return c.json({ error: 'must_be_later' }, 400);
+  await requestExtension(c.env, id, until.toISOString());
+  await audit(c.env, user.email, 'extension.request', `req:${id}`, until.toISOString());
+  c.executionCtx.waitUntil(notifyAdminsExtension(c.env, id, r.user_email, until.toISOString()));
+  return c.json({ ok: true });
+});
+
 // Configure the per-VM auto start/stop schedule (owner/admin). Times are 'HH:MM'
 // local Europe/Zurich; days are ISO weekdays (1=Mon..7=Sun). Enforced by the cron.
 app.post('/api/requests/:id/schedule', apiAuth, async (c) => {
@@ -486,6 +512,28 @@ app.post('/api/admin/requests/:id/approve', apiAdmin, async (c) => {
     await audit(c.env, 'system', 'vm.launch.failed', `req:${id}`, e.message);
     return c.json({ error: e.message }, 500);
   }
+});
+
+app.post('/api/admin/requests/:id/extend/approve', apiAdmin, async (c) => {
+  const admin = c.get('user');
+  const id = Number(c.req.param('id'));
+  const until = await approveExtension(c.env, id);
+  if (!until) return c.json({ error: 'no_request' }, 409);
+  await audit(c.env, admin.email, 'extension.approve', `req:${id}`, until);
+  const r = await getRequest(c.env, id);
+  if (r) c.executionCtx.waitUntil(notifyUserExtensionApproved(c.env, r.user_email, id, until));
+  return c.json({ ok: true });
+});
+
+app.post('/api/admin/requests/:id/extend/reject', apiAdmin, async (c) => {
+  const admin = c.get('user');
+  const id = Number(c.req.param('id'));
+  const r = await getRequest(c.env, id);
+  if (!r || !r.ext_requested_end) return c.json({ error: 'no_request' }, 409);
+  await rejectExtension(c.env, id);
+  await audit(c.env, admin.email, 'extension.reject', `req:${id}`);
+  c.executionCtx.waitUntil(notifyUserExtensionRejected(c.env, r.user_email, id));
+  return c.json({ ok: true });
 });
 
 app.post('/api/admin/requests/:id/reject', apiAdmin, async (c) => {

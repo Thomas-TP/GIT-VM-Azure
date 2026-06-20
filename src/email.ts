@@ -94,6 +94,31 @@ export async function notifyUserExpired(env: Env, to: string, reqId: number) {
   await sendMail(env, { to, subject: `VM #${reqId} expirée (supprimée)`, title: 'VM expirée — supprimée 🗑️', message });
 }
 
+export async function notifyAdminsExtension(env: Env, reqId: number, userEmail: string, until: string) {
+  const when = new Date(until).toLocaleString('fr-CH', { dateStyle: 'long', timeStyle: 'short' });
+  const message =
+    `${userEmail} demande à prolonger la VM #${reqId} jusqu'au ${when}.\n\n` +
+    `Valide ou refuse depuis la console d'administration.`;
+  for (const to of ADMIN_RECIPIENTS(env)) {
+    await sendMail(env, { to, subject: `Prolongation demandée — VM #${reqId}`, title: 'Demande de prolongation ⏳', message });
+  }
+}
+
+export async function notifyUserExtensionApproved(env: Env, to: string, reqId: number, until: string) {
+  const when = new Date(until).toLocaleString('fr-CH', { dateStyle: 'long', timeStyle: 'short' });
+  const message =
+    `Bonne nouvelle — la prolongation de ta VM #${reqId} est accordée.\n\n` +
+    `Nouvelle date de fin : ${when}.`;
+  await sendMail(env, { to, subject: `VM #${reqId} prolongée`, title: 'Prolongation accordée ✅', message });
+}
+
+export async function notifyUserExtensionRejected(env: Env, to: string, reqId: number) {
+  const message =
+    `Ta demande de prolongation pour la VM #${reqId} n'a pas été retenue.\n\n` +
+    `La date de fin reste inchangée. Pense à sauvegarder ton travail avant l'échéance.`;
+  await sendMail(env, { to, subject: `Prolongation refusée — VM #${reqId}`, title: 'Prolongation refusée', message });
+}
+
 export async function notifyUserReady(
   env: Env,
   to: string,

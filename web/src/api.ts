@@ -43,6 +43,10 @@ export const api = {
       body: JSON.stringify({ perf, storage, os, purpose, startDate, endDate }),
     }),
   getRequest: (id: number) => req<{ request: VmRequest }>(`/api/requests/${id}`).then((r) => r.request),
+  requestExtension: (id: number, until: string) =>
+    req<{ ok: true }>(`/api/requests/${id}/extend`, { method: 'POST', body: JSON.stringify({ until }) }),
+  approveExtension: (id: number) => req<{ ok: true }>(`/api/admin/requests/${id}/extend/approve`, { method: 'POST' }),
+  rejectExtension: (id: number) => req<{ ok: true }>(`/api/admin/requests/${id}/extend/reject`, { method: 'POST' }),
   terminate: (id: number) => req<{ ok: true }>(`/api/requests/${id}/terminate`, { method: 'POST' }),
   start: (id: number) => req<{ ok: true }>(`/api/requests/${id}/start`, { method: 'POST' }),
   stop: (id: number) => req<{ ok: true }>(`/api/requests/${id}/stop`, { method: 'POST' }),

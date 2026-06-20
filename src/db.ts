@@ -389,3 +389,32 @@ export async function markExpired(env: Env, id: number): Promise<void> {
     .bind(id)
     .run();
 }
+
+// ---- Extension requests (user asks, admin approves) --------------------
+export async function requestExtension(env: Env, id: number, until: string): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE vm_requests SET ext_requested_end = ?2, ext_requested_at = datetime('now') WHERE id = ?1`
+  )
+    .bind(id, until)
+    .run();
+}
+
+// Approve: apply the requested end date and clear the pending request.
+export async function approveExtension(env: Env, id: number): Promise<string | null> {
+  const row = await env.DB.prepare(`SELECT ext_requested_end FROM vm_requests WHERE id = ?1`)
+    .bind(id)
+    .first<{ ext_requested_end: string | null }>();
+  if (!row?.ext_requested_end) return null;
+  await env.DB.prepare(
+    `UPDATE vm_requests SET end_date = ext_requested_end, ext_requested_end = NULL, ext_requested_at = NULL WHERE id = ?1`
+  )
+    .bind(id)
+    .run();
+  return row.ext_requested_end;
+}
+
+export async function rejectExtension(env: Env, id: number): Promise<void> {
+  await env.DB.prepare(`UPDATE vm_requests SET ext_requested_end = NULL, ext_requested_at = NULL WHERE id = ?1`)
+    .bind(id)
+    .run();
+}

@@ -52,6 +52,8 @@ export interface VmRequestRow {
   start_date: string | null;
   end_date: string | null;
   expired_at: string | null;
+  ext_requested_end: string | null;
+  ext_requested_at: string | null;
   // auto start/stop schedule (Europe/Zurich)
   schedule_enabled?: number;
   schedule_start?: string | null;

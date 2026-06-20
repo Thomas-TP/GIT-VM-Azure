@@ -234,6 +234,20 @@ function RequestsSection({ rows, loading, catalog }: { rows: VmRequest[]; loadin
         </div>
       </div>
 
+      {rows.some((r) => r.ext_requested_end) && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-sm">
+          <span className="font-medium text-amber-700 dark:text-amber-400">
+            {t('admin.pendingExt', { count: rows.filter((r) => r.ext_requested_end).length })}
+          </span>
+          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+            {rows.filter((r) => r.ext_requested_end).map((r) => (
+              <Link key={r.id} to={`/requests/${r.id}`} className="font-mono text-xs text-amber-700 underline-offset-2 hover:underline dark:text-amber-400">
+                #{String(r.id).padStart(3, '0')} → {fmtDate(r.ext_requested_end)}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
       {loading ? (
         <TableSkeleton rows={6} />
       ) : (

@@ -101,6 +101,8 @@ export interface VmRequest {
   start_date: string | null;
   end_date: string | null;
   expired_at: string | null;
+  ext_requested_end?: string | null;
+  ext_requested_at?: string | null;
   schedule_enabled?: number;
   schedule_start?: string | null;
   schedule_stop?: string | null;
