@@ -263,6 +263,39 @@ export async function getPasswordForRequest(
     .first();
 }
 
+// ---- Monitoring aggregates (for Grafana) -------------------------------
+export async function requestsPerDay(env: Env, days = 30) {
+  const res = await env.DB.prepare(
+    `SELECT date(created_at) AS day, COUNT(*) AS count FROM vm_requests
+      WHERE created_at >= datetime('now', ?1) GROUP BY day ORDER BY day`
+  )
+    .bind(`-${days} days`)
+    .all();
+  return res.results ?? [];
+}
+
+export async function countByOs(env: Env) {
+  const res = await env.DB.prepare(
+    `SELECT COALESCE(os, '?') AS os, COUNT(*) AS count FROM vm_requests GROUP BY os ORDER BY count DESC`
+  ).all();
+  return res.results ?? [];
+}
+
+export async function countByUser(env: Env) {
+  const res = await env.DB.prepare(
+    `SELECT user_email, COUNT(*) AS count FROM vm_requests GROUP BY user_email ORDER BY count DESC`
+  ).all();
+  return res.results ?? [];
+}
+
+// Active (non-expired) requests with their preset/storage ids — for cost rollup.
+export async function listActiveForCost(env: Env): Promise<{ preset: string; storage: string | null }[]> {
+  const res = await env.DB.prepare(
+    `SELECT preset, storage FROM vm_requests WHERE status = 'active' AND expired_at IS NULL`
+  ).all<{ preset: string; storage: string | null }>();
+  return res.results ?? [];
+}
+
 export async function countByStatus(env: Env): Promise<Record<string, number>> {
   // Bucket expired VMs separately (derived from expired_at) so "active" excludes them.
   const res = await env.DB.prepare(

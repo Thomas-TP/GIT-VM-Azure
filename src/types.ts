@@ -15,6 +15,7 @@ export interface Env {
   AWS_KEY_NAME: string;
 
   APP_URL: string;
+  GRAFANA_URL?: string; // optional: link shown in the admin Monitoring tab
   MAIL_ENABLED: string; // "true" | "false"
   SCHEDULED_STOP: string; // "true" | "false" — stop running VMs at 19:00 UTC
   SENTRY_DSN?: string; // optional error reporting
@@ -28,6 +29,7 @@ export interface Env {
   AWS_ACCESS_KEY_ID: string;
   AWS_SECRET_ACCESS_KEY: string;
   EMAILJS_PRIVATE_KEY: string;
+  GRAFANA_TOKEN?: string; // bearer token for the /api/monitoring/* endpoints (Grafana)
 }
 
 export interface SessionUser {

@@ -1,0 +1,26 @@
+# Grafana local pour GIT VM Portal.
+#   1. cp .env.example .env  puis renseigne GRAFANA_TOKEN (= secret wrangler GRAFANA_TOKEN).
+#   2. docker compose up -d
+#   3. http://localhost:3000  (admin / admin) → dashboard « GIT VM Portal » déjà provisionné.
+#
+# La datasource Infinity lit les endpoints JSON token-gated de la prod. Le token est
+# passé par variable de dashboard ($token), pré-rempli depuis GF_AUTH... non : voir README.
+services:
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: gitvm-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+      # Valeurs par défaut des variables du dashboard (modifiables dans l'UI) :
+      PORTAL_URL: ${PORTAL_URL:-https://git-vm-portal.thomas-prudhomme.workers.dev}
+      GRAFANA_TOKEN: ${GRAFANA_TOKEN:-}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+volumes:
+  grafana-data:

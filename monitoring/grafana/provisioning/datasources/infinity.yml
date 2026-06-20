@@ -1,0 +1,13 @@
+apiVersion: 1
+datasources:
+  - name: GIT VM Portal
+    uid: gitvm-infinity
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    isDefault: true
+    jsonData:
+      # Le token est passé en query (?token=) via la variable de dashboard $token,
+      # donc pas d'auth à configurer ici. On limite les hôtes autorisés.
+      allowedHosts:
+        - https://git-vm-portal.thomas-prudhomme.workers.dev
+        - http://localhost:8787

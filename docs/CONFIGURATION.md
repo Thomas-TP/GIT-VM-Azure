@@ -30,6 +30,7 @@
 | `AWS_AMI_ID` | `ami-0fd7f34c…` | AMI legacy par défaut (les OS du catalogue sont dans `src/presets.ts`) |
 | `AWS_KEY_NAME` | *(vide)* | Réservé ; les clés sont créées par VM |
 | `APP_URL` | `https://git-vm-portal.…workers.dev` | URL publique (redirects, emails) |
+| `GRAFANA_URL` | *(vide)* | Lien Grafana affiché dans l'onglet Monitoring (admin) |
 | `MAIL_ENABLED` | `true` | Active l'envoi EmailJS |
 | `SCHEDULED_STOP` | `true` | Active l'extinction nocturne (cron 19 h UTC) |
 | `SENTRY_DSN` | *(vide)* | DSN Sentry (optionnel) |
@@ -46,6 +47,7 @@
 | `AWS_ACCESS_KEY_ID` | IAM user dédié | Auth API EC2 |
 | `AWS_SECRET_ACCESS_KEY` | IAM user dédié | Auth API EC2 |
 | `EMAILJS_PRIVATE_KEY` | EmailJS → Account → API Keys | Auth serveur EmailJS |
+| `GRAFANA_TOKEN` | aléatoire fort (optionnel) | Bearer des endpoints `/api/monitoring/*` (Grafana, cf. [monitoring/](../monitoring/README.md)). Non défini → endpoints `503`. |
 
 ```bash
 # Définir / mettre à jour un secret (prod)

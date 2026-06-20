@@ -12,7 +12,7 @@ import { OsIcon } from '../components/OsIcon';
 import { RequestsTable } from '../components/RequestsTable';
 import { UsersPanel } from '../components/UsersPanel';
 
-type Tab = 'overview' | 'requests' | 'machines' | 'users' | 'audit' | 'metrics';
+type Tab = 'overview' | 'requests' | 'machines' | 'users' | 'audit' | 'metrics' | 'monitoring';
 const PER_PAGE = 10;
 
 /* ---------- shared bits ---------- */
@@ -62,6 +62,7 @@ const ICONS: Record<Tab, string> = {
   users: 'M16 21v-2a4 4 0 0 0-8 0v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
   audit: 'M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z',
   metrics: 'M3 3v18h18M7 14l3-3 3 3 5-6',
+  monitoring: 'M22 12h-4l-3 9L9 3l-3 9H2',
 };
 
 export function Admin() {
@@ -90,6 +91,7 @@ export function Admin() {
     { id: 'users', label: t('admin.navUsers') },
     { id: 'audit', label: t('admin.navAudit') },
     { id: 'metrics', label: t('admin.navMetrics') },
+    { id: 'monitoring', label: t('admin.navMonitoring') },
   ];
 
   return (
@@ -130,6 +132,7 @@ export function Admin() {
           {tab === 'users' && <UsersSection rows={rows} />}
           {tab === 'audit' && <AuditSection />}
           {tab === 'metrics' && <MetricsSection stats={stats} metrics={metricsQ.data} rows={rows} catalog={catalog} />}
+          {tab === 'monitoring' && <MonitoringSection />}
         </div>
       </div>
     </div>
@@ -475,6 +478,36 @@ function AuditSection() {
           <AuditList entries={auditQ.data ?? []} />
         </Card>
       )}
+    </div>
+  );
+}
+
+/* ---------- Monitoring (Grafana) ---------- */
+function MonitoringSection() {
+  const { t } = useTranslation();
+  const endpoints = ['summary', 'daily', 'os', 'users', 'cost'];
+  return (
+    <div className="space-y-4">
+      <SectionTitle title={t('admin.navMonitoring')} hint={t('admin.monHint')} />
+      <Card className="p-5">
+        <p className="text-sm text-muted-foreground">{t('admin.monIntro')}</p>
+        <ol className="mt-3 space-y-2 text-sm">
+          <li>1. {t('admin.monStep1')} <code className="rounded bg-muted px-1.5 py-0.5 text-xs">wrangler secret put GRAFANA_TOKEN</code></li>
+          <li>2. {t('admin.monStep2')} <code className="rounded bg-muted px-1.5 py-0.5 text-xs">docker compose up -d</code> (<code className="text-xs">monitoring/</code>)</li>
+          <li>3. {t('admin.monStep3')}</li>
+        </ol>
+        <a href="http://localhost:3000" target="_blank" rel="noreferrer" className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3.5 text-sm font-medium transition hover:bg-muted">
+          {t('admin.monOpen')} ↗
+        </a>
+      </Card>
+      <Card className="p-5">
+        <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t('admin.monEndpoints')}</h3>
+        <ul className="space-y-1.5">
+          {endpoints.map((e) => (
+            <li key={e}><code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">/api/monitoring/{e}</code></li>
+          ))}
+        </ul>
+      </Card>
     </div>
   );
 }

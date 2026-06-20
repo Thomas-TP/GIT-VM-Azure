@@ -10,6 +10,7 @@ import {
   isValidPerf,
   isValidStorage,
   isValidOs,
+  estimateMonthlyUsd,
   STORAGE_USD_GB_MONTH,
 } from './presets';
 import { reportError } from './sentry';
@@ -24,6 +25,10 @@ import {
   getRequest,
   getRequestDetail,
   countByStatus,
+  requestsPerDay,
+  countByOs,
+  countByUser,
+  listActiveForCost,
   setRequestStatus,
   createVm,
   updateVm,
@@ -609,6 +614,35 @@ app.post('/api/admin/requests/:id/reject', apiAdmin, async (c) => {
   await addNotification(c.env, req.user_email, 'rejected', `/requests/${id}`);
   c.executionCtx.waitUntil(notifyUserRejected(c.env, req.user_email, id, note));
   return c.json({ ok: true });
+});
+
+// ---- Monitoring (Grafana via Infinity datasource) ----------------------
+// Token-gated, no session: Grafana sends `Authorization: Bearer <GRAFANA_TOKEN>`
+// (or ?token=). Returns Infinity-friendly JSON arrays. 503 if the token is unset.
+function monitoringOk(c: any): boolean {
+  const token = c.env.GRAFANA_TOKEN;
+  if (!token) return false;
+  const provided = (c.req.header('authorization') ?? '').replace(/^Bearer\s+/i, '') || c.req.query('token') || '';
+  return provided.length > 0 && provided === token;
+}
+
+app.get('/api/monitoring/:metric', async (c) => {
+  if (!c.env.GRAFANA_TOKEN) return c.json({ error: 'not_configured' }, 503);
+  if (!monitoringOk(c)) return c.json({ error: 'unauthorized' }, 401);
+  const metric = c.req.param('metric');
+  if (metric === 'summary') {
+    const counts = await countByStatus(c.env);
+    return c.json(Object.entries(counts).map(([status, count]) => ({ status, count })));
+  }
+  if (metric === 'daily') return c.json(await requestsPerDay(c.env));
+  if (metric === 'os') return c.json(await countByOs(c.env));
+  if (metric === 'users') return c.json(await countByUser(c.env));
+  if (metric === 'cost') {
+    const rows = await listActiveForCost(c.env);
+    const monthlyUsd = rows.reduce((s, r) => s + estimateMonthlyUsd(r.preset, r.storage ?? ''), 0);
+    return c.json([{ activeVms: rows.length, monthlyUsd: Math.round(monthlyUsd * 100) / 100 }]);
+  }
+  return c.json({ error: 'unknown_metric' }, 404);
 });
 
 // ---- Static assets (React SPA) -----------------------------------------
