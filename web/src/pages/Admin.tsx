@@ -1,19 +1,15 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useMemo } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
-import { useToast } from '../toast';
-import type { AuditEntry, Metrics, OsPreset, PerfPreset, PresetCatalog, Status, VmRequest } from '../types';
-import { Button, Card, IconDownload, IconPlay, IconReboot, IconStop, IconTrash, Select, Spinner, TableSkeleton } from '../ui';
+import type { AuditEntry, Metrics, VmRequest } from '../types';
+import { Card } from '../ui';
 import { fmtDate } from '../lib/format';
-import { OsIcon } from '../components/OsIcon';
-import { RequestsTable } from '../components/RequestsTable';
-import { GroupReview } from '../components/GroupReview';
 import { UsersPanel } from '../components/UsersPanel';
+import { VmConsole } from '../components/VmConsole';
 
-type Tab = 'overview' | 'requests' | 'machines' | 'users' | 'monitoring';
-const PER_PAGE = 10;
+type Tab = 'overview' | 'vms' | 'users' | 'monitoring';
 
 /* ---------- shared bits ---------- */
 function StatCard({ label, value, dot }: { label: string; value: number; dot: string }) {
@@ -52,8 +48,7 @@ const TabIcon = ({ d }: { d: string }) => (
 );
 const ICONS: Record<Tab, string> = {
   overview: 'M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-4H4z',
-  requests: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
-  machines: 'M5 4h14a2 2 0 0 1 2 2v3H3V6a2 2 0 0 1 2-2zM3 15h18v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM7 7h.01M7 18h.01',
+  vms: 'M5 4h14a2 2 0 0 1 2 2v3H3V6a2 2 0 0 1 2-2zM3 15h18v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM7 7h.01M7 18h.01',
   users: 'M16 21v-2a4 4 0 0 0-8 0v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
   monitoring: 'M22 12h-4l-3 9L9 3l-3 9H2',
 };
@@ -62,7 +57,6 @@ export function Admin() {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('overview');
 
-  // Shared queries (fetched once, passed down).
   const presetsQ = useQuery({ queryKey: ['presets'], queryFn: api.presets });
   const statsQ = useQuery({ queryKey: ['admin-stats'], queryFn: api.adminStats, refetchInterval: 10000 });
   const metricsQ = useQuery({ queryKey: ['admin-metrics'], queryFn: api.adminMetrics, refetchInterval: 15000 });
@@ -79,8 +73,7 @@ export function Admin() {
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: 'overview', label: t('admin.navOverview') },
-    { id: 'requests', label: t('admin.navRequests'), badge: pending },
-    { id: 'machines', label: t('admin.navMachines') },
+    { id: 'vms', label: t('admin.navVms'), badge: pending },
     { id: 'users', label: t('admin.navUsers') },
     { id: 'monitoring', label: t('admin.navMonitoring') },
   ];
@@ -118,8 +111,7 @@ export function Admin() {
 
         <div className="min-w-0">
           {tab === 'overview' && <OverviewSection stats={stats} metrics={metricsQ.data} />}
-          {tab === 'requests' && <RequestsSection rows={rows} loading={allQ.isLoading} catalog={catalog} />}
-          {tab === 'machines' && <MachinesSection rows={rows} loading={allQ.isLoading} catalog={catalog} />}
+          {tab === 'vms' && <VmConsole rows={rows} loading={allQ.isLoading} catalog={catalog} />}
           {tab === 'users' && <UsersSection rows={rows} />}
           {tab === 'monitoring' && <MonitoringSection grafanaUrl={catalog?.grafanaUrl} />}
         </div>
@@ -154,215 +146,6 @@ function OverviewSection({ stats, metrics }: { stats: Record<string, number>; me
         <AuditList entries={auditQ.data ?? []} compact />
       </Card>
     </div>
-  );
-}
-
-/* ---------- Requests ---------- */
-function RequestsSection({ rows, loading, catalog }: { rows: VmRequest[]; loading: boolean; catalog?: PresetCatalog }) {
-  const { t } = useTranslation();
-  const [filter, setFilter] = useState<Status | ''>('');
-  const [search, setSearch] = useState('');
-  const [sortAsc, setSortAsc] = useState(false);
-  const [page, setPage] = useState(0);
-
-  const presetMap = useMemo(() => {
-    const m: Record<string, PerfPreset> = {};
-    catalog?.perf.forEach((p) => (m[p.id] = p));
-    return m;
-  }, [catalog]);
-
-  const osFamily = (id?: string | null) => (id ? catalog?.os.find((o) => o.id === id)?.family : undefined);
-
-  const eff = (r: VmRequest): Status => (r.expired_at ? 'expired' : r.status);
-  const display = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let r = rows;
-    if (filter) r = r.filter((x) => eff(x) === filter);
-    if (q) r = r.filter((x) => x.user_email.toLowerCase().includes(q) || x.purpose.toLowerCase().includes(q) || (x.group_name ?? '').toLowerCase().includes(q));
-    return [...r].sort((a, b) => (sortAsc ? a.created_at.localeCompare(b.created_at) : b.created_at.localeCompare(a.created_at)));
-  }, [rows, filter, search, sortAsc]);
-
-  // Groups that still have pending requests -> shown as cards with bulk approve/reject.
-  const pendingGroups = useMemo(() => {
-    const g = new Map<string, { name: string; rows: VmRequest[]; pending: number }>();
-    for (const r of display) {
-      if (!r.group_id) continue;
-      const e = g.get(r.group_id) ?? { name: r.group_name ?? r.group_id, rows: [], pending: 0 };
-      e.rows.push(r);
-      if (r.status === 'pending') e.pending++;
-      g.set(r.group_id, e);
-    }
-    return [...g.entries()].filter(([, v]) => v.pending > 0);
-  }, [display]);
-  const pendingGroupIds = useMemo(() => new Set(pendingGroups.map(([gid]) => gid)), [pendingGroups]);
-  const otherRows = useMemo(() => display.filter((r) => !r.group_id || !pendingGroupIds.has(r.group_id)), [display, pendingGroupIds]);
-
-  const pageCount = Math.max(1, Math.ceil(otherRows.length / PER_PAGE));
-  const safePage = Math.min(page, pageCount - 1);
-  const slice = otherRows.slice(safePage * PER_PAGE, safePage * PER_PAGE + PER_PAGE);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <SectionTitle title={t('admin.all')} hint={t('admin.requestsHint')} />
-        <div className="flex flex-wrap items-end gap-2">
-          <input
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-            placeholder={t('admin.search')}
-            className="h-9 w-44 rounded-lg border border-border bg-background px-3 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-ring focus:ring-2 focus:ring-ring/15"
-          />
-          <a href={api.csvUrl} download className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-medium transition hover:bg-muted">
-            <IconDownload className="h-4 w-4" /> {t('admin.exportCsv')}
-          </a>
-          <Select value={filter} onChange={(e) => { setFilter(e.target.value as Status | ''); setPage(0); }} className="w-40">
-            <option value="">{t('admin.allStatuses')}</option>
-            {(['pending', 'provisioning', 'active', 'approved', 'rejected', 'failed', 'terminated', 'expired'] as Status[]).map((s) => (
-              <option key={s} value={s}>{t(`status.${s}`)}</option>
-            ))}
-          </Select>
-          <Button variant="secondary" onClick={() => setSortAsc((v) => !v)}>{sortAsc ? t('admin.oldest') : t('admin.newest')}</Button>
-        </div>
-      </div>
-
-      {rows.some((r) => r.ext_requested_end) && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-sm">
-          <span className="font-medium text-amber-700 dark:text-amber-400">
-            {t('admin.pendingExt', { count: rows.filter((r) => r.ext_requested_end).length })}
-          </span>
-          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-            {rows.filter((r) => r.ext_requested_end).map((r) => (
-              <Link key={r.id} to={`/requests/${r.id}`} className="font-mono text-xs text-amber-700 underline-offset-2 hover:underline dark:text-amber-400">
-                #{String(r.id).padStart(3, '0')} → {fmtDate(r.ext_requested_end)}
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-      {pendingGroups.length > 0 && (
-        <div className="space-y-3">
-          {pendingGroups.map(([gid, grp]) => (
-            <GroupReview key={gid} groupId={gid} name={grp.name} owner={grp.rows[0]?.user_email} vms={grp.rows} presets={presetMap} osFamily={osFamily} />
-          ))}
-        </div>
-      )}
-      {loading ? (
-        <TableSkeleton rows={6} />
-      ) : otherRows.length === 0 && pendingGroups.length > 0 ? null : (
-        <>
-          <RequestsTable rows={slice} presets={presetMap} admin />
-          {pageCount > 1 && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>{safePage + 1} / {pageCount}</span>
-              <div className="flex gap-2">
-                <Button variant="secondary" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>←</Button>
-                <Button variant="secondary" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>→</Button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ---------- Machines ---------- */
-function MachinesSection({ rows, loading, catalog }: { rows: VmRequest[]; loading: boolean; catalog?: PresetCatalog }) {
-  const { t } = useTranslation();
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const osMap = useMemo(() => {
-    const m: Record<string, OsPreset> = {};
-    catalog?.os.forEach((o) => (m[o.id] = o));
-    return m;
-  }, [catalog]);
-
-  const machines = rows.filter((r) => r.aws_instance_id || r.status === 'provisioning' || r.status === 'active');
-  const invalidate = () => { qc.invalidateQueries({ queryKey: ['admin-all'] }); setBusyId(null); };
-  const run = (fn: Promise<unknown>, ok: string) => { fn.then(() => { invalidate(); toast.success(t(ok)); }).catch(() => { setBusyId(null); toast.error(t('toast.error')); }); };
-
-  if (loading) return <TableSkeleton rows={5} />;
-
-  return (
-    <div className="space-y-4">
-      <SectionTitle title={t('admin.machines')} hint={t('admin.machinesHint')} />
-      {machines.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border bg-card/50 p-10 text-center text-sm text-muted-foreground">{t('admin.noMachines')}</p>
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">{t('table.id')}</th>
-                  <th className="px-4 py-3 font-medium">{t('admin.colOs')}</th>
-                  <th className="px-4 py-3 font-medium">{t('admin.colOwner')}</th>
-                  <th className="px-4 py-3 font-medium">{t('admin.colIp')}</th>
-                  <th className="px-4 py-3 font-medium">{t('admin.colState')}</th>
-                  <th className="px-4 py-3 font-medium">{t('admin.colInstance')}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t('common.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {machines.map((r) => {
-                  const os = r.os ? osMap[r.os] : undefined;
-                  const st = r.vm_state ?? 'none';
-                  const busy = busyId === r.id;
-                  return (
-                    <tr key={r.id} className="border-b border-border/70 transition last:border-0 hover:bg-muted/40">
-                      <td className="px-4 py-3">
-                        <Link to={`/requests/${r.id}`} className="font-mono text-xs text-muted-foreground hover:text-foreground">#{String(r.id).padStart(3, '0')}</Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-2">
-                          {os && <OsIcon family={os.family} className="h-6 w-6" />}
-                          <span className="truncate">{os?.label ?? r.os ?? '—'}</span>
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{r.user_email}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{r.public_ip ?? '—'}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className={`h-1.5 w-1.5 rounded-full ${st === 'running' ? 'bg-emerald-500' : st === 'stopped' ? 'bg-zinc-400' : 'bg-amber-500'}`} />
-                          {t(`vmState.${st}`, st)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{r.aws_instance_id ?? '—'}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {r.status === 'active' && st === 'stopped' && !r.expired_at && (
-                            <MIcon title={t('actions.start')} disabled={busy} onClick={() => { setBusyId(r.id); run(api.start(r.id), 'toast.started'); }}><IconPlay className="h-4 w-4 text-emerald-600" /></MIcon>
-                          )}
-                          {r.status === 'active' && st === 'running' && (
-                            <>
-                              <MIcon title={t('actions.stop')} disabled={busy} onClick={() => { setBusyId(r.id); run(api.stop(r.id), 'toast.stopped'); }}><IconStop className="h-4 w-4 text-amber-600" /></MIcon>
-                              <MIcon title={t('actions.reboot')} disabled={busy} onClick={() => { setBusyId(r.id); run(api.reboot(r.id), 'toast.rebooted'); }}><IconReboot className="h-4 w-4" /></MIcon>
-                            </>
-                          )}
-                          {(r.status === 'active' || r.status === 'provisioning' || r.status === 'failed') && (
-                            <MIcon title={t('actions.terminate')} disabled={busy} onClick={() => { setBusyId(r.id); run(api.terminate(r.id), 'toast.terminated'); }}>
-                              {busy ? <Spinner className="h-4 w-4" /> : <IconTrash className="h-4 w-4 text-red-600" />}
-                            </MIcon>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-function MIcon({ children, onClick, disabled, title }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; title: string }) {
-  return (
-    <button onClick={onClick} disabled={disabled} title={title} className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50">
-      {children}
-    </button>
   );
 }
 
@@ -419,6 +202,7 @@ function AuditList({ entries, compact }: { entries: AuditEntry[]; compact?: bool
     </div>
   );
 }
+
 /* ---------- Monitoring (Grafana Cloud) ---------- */
 function MonitoringSection({ grafanaUrl }: { grafanaUrl?: string }) {
   const { t } = useTranslation();
