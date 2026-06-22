@@ -791,7 +791,12 @@ app.post('/api/requests/:id/snapshots/:sid/export', apiAuth, async (c) => {
   const bucket = c.env.AWS_EXPORT_BUCKET;
   const key = `exports/req${id}-snap${sid}-${target}-${Date.now()}.zip`;
   const sizeGb = snap.size_gb ?? 30;
-  const userData = exportUserData({ region: c.env.AWS_REGION, snapshotId: snap.aws_snapshot_id, bucket, key, target, name: `gitvm-${id}`, guest: guestType(ctx.r.os) });
+  const osDef = ctx.r.os ? OS[ctx.r.os] : undefined;
+  const userData = exportUserData({
+    region: c.env.AWS_REGION, snapshotId: snap.aws_snapshot_id, bucket, key, target,
+    name: `gitvm-${id}`, guest: guestType(ctx.r.os),
+    loginUser: osDef?.sshUser ?? 'ubuntu', windows: osDef?.family === 'windows',
+  });
   try {
     const instanceId = await runExportHelper(c.env, { snapshotId: snap.aws_snapshot_id, profileName: c.env.AWS_EXPORT_PROFILE, userData, rootSizeGb: sizeGb * 2 + 18 });
     await createExport(c.env, sid, ctx.r.user_email, target, key, instanceId);
@@ -1279,10 +1284,12 @@ function guestType(osId: string | null | undefined): { vmware: string; vbox: str
 }
 
 // Bootstrap for the throwaway converter (Amazon Linux 2023): snapshot -> disk -> descriptor -> zip -> S3.
-function exportUserData(p: { region: string; snapshotId: string; bucket: string; key: string; target: string; name: string; guest: { vmware: string; vbox: string } }): string {
+function exportUserData(p: { region: string; snapshotId: string; bucket: string; key: string; target: string; name: string; guest: { vmware: string; vbox: string }; loginUser: string; windows: boolean }): string {
   const isVbox = p.target === 'virtualbox';
   const fmt = isVbox ? 'vdi' : 'vmdk';
   const disk = `${p.name}.${fmt}`;
+  const loginUser = (p.loginUser || 'ubuntu').replace(/[^a-zA-Z0-9_-]/g, '') || 'ubuntu';
+  const win = p.windows ? '1' : '0';
   const py = isVbox
     ? [
         'import uuid',
@@ -1317,11 +1324,26 @@ aws ec2 attach-volume --region "$REGION" --volume-id "$VOL" --instance-id "$IID"
 aws ec2 modify-instance-attribute --region "$REGION" --instance-id "$IID" --block-device-mappings '[{"DeviceName":"/dev/sdf","Ebs":{"DeleteOnTermination":true}}]' || true
 for i in $(seq 1 40); do DEV=$(lsblk -dpno NAME | grep -E 'nvme[1-9]n1$' | head -1); [ -n "$DEV" ] && break; sleep 3; done
 cd /root
+# Make the exported VM usable locally. AWS Linux images are SSH-key only (no console
+# password) -> set one so the user can log in; ship the credentials in login.txt.
+if [ "${win}" = "0" ]; then
+  ROOTP=$(lsblk -brpno NAME,FSTYPE,SIZE "$DEV" | awk '$2=="ext4"||$2=="xfs"{print $3, $1}' | sort -rn | head -1 | awk '{print $2}')
+  PW=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 12)
+  mkdir -p /mnt/img
+  if [ -n "$ROOTP" ] && mount "$ROOTP" /mnt/img 2>/dev/null; then
+    echo "${loginUser}:$PW" | chroot /mnt/img chpasswd 2>/dev/null || true
+    echo "root:$PW" | chroot /mnt/img chpasswd 2>/dev/null || true
+    umount /mnt/img || true
+  fi
+  printf 'VM exportee depuis GIT VM Portal\\n\\nConnexion console:\\n  utilisateur: ${loginUser}\\n  mot de passe: %s\\n  (root: meme mot de passe)\\nA changer apres la premiere connexion.\\n' "$PW" > login.txt
+else
+  printf 'VM Windows exportee depuis GIT VM Portal\\n\\nConnexion: Administrateur\\nMot de passe: celui affiche dans le portail (page VM, onglet Connexion).\\n' > login.txt
+fi
 qemu-img convert -p -f raw -O ${fmt} "$DEV" "${disk}"
 python3 - <<'PYEOF'
 ${py}
 PYEOF
-zip -j bundle.zip "${disk}" "${desc}"
+zip -j bundle.zip "${disk}" "${desc}" login.txt
 aws s3 cp bundle.zip "s3://$BUCKET/$KEY"
 aws ec2 detach-volume --region "$REGION" --volume-id "$VOL" || true
 sleep 8
