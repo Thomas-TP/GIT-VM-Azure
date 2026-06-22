@@ -13,6 +13,7 @@ Chaque ADR répond à « nous avons choisi X plutôt que Y parce que… » (exig
 | [0006](0006-gestion-des-secrets.md) | Secrets : Wrangler Secrets + chiffrement AES-GCM au repos | ✅ Acté |
 | [0007](0007-catalogue-os-et-windows-rdp.md) | Catalogue d'OS élargi (AMIs vérifiés) + support Windows (RDP) | ✅ Acté |
 | [0008](0008-suppression-auto-a-l-echeance.md) | Suppression automatique des VM à l'échéance (supersède le « stop » d'ADR 0004) | ✅ Acté |
+| [0009](0009-snapshots-et-restauration-locale.md) | Snapshots EBS + restauration (création / local via coldsnap) plutôt qu'export OVA | ✅ Acté |
 
 > Convention : un ADR n'est jamais réécrit une fois acté ; s'il est remis en cause, on crée un
 > nouvel ADR qui le « supersède ».
