@@ -84,10 +84,12 @@ export const OS: Record<string, OsPreset> = {
   ubuntu2204: { id: 'ubuntu2204', label: 'Ubuntu 22.04 LTS', family: 'ubuntu', ami: 'ami-0fd7f34c2a7d8427b', sshUser: 'ubuntu', connect: 'ssh', hidden: true },
 };
 
-// Bundles d'outils par cours, préinstallés sur la VM (Linux) via cloud-init au
-// premier démarrage. Optimisé Ubuntu/Debian (apt) + installeurs officiels
-// (distro-agnostiques) pour les outils cloud. `install` = corps bash exécuté
-// après COURSE_SCRIPT_HEADER. Tout est tolérant aux erreurs (|| true).
+// Bundles d'outils par cours, préinstallés sur la VM via cloud-init au premier
+// démarrage. MULTI-DISTRO : le header détecte apt / dnf / yum (Ubuntu/Debian ET
+// Amazon Linux / Rocky / Alma) et expose `pm` qui installe chaque paquet
+// individuellement, tolérant (on passe les noms apt ET dnf, le mauvais est ignoré).
+// Les gros outils cloud/devops passent par leurs installeurs officiels (binaires,
+// distro-agnostiques). Windows = Chocolatey (buildWindowsCourseInstall).
 export interface CoursePreset {
   id: string;
   label: string;
@@ -99,12 +101,30 @@ export interface CoursePreset {
 export const COURSE_SCRIPT_HEADER = [
   '#!/bin/bash',
   'set -x',
-  'export DEBIAN_FRONTEND=noninteractive',
-  'apt-get update -y || true',
-  'APT="apt-get install -y"',
+  'if command -v apt-get >/dev/null 2>&1; then',
+  '  export DEBIAN_FRONTEND=noninteractive; apt-get update -y || true',
+  '  pm() { for p in "$@"; do apt-get install -y "$p" || true; done; }',
+  'elif command -v dnf >/dev/null 2>&1; then',
+  '  dnf install -y dnf-plugins-core || true',
+  '  pm() { for p in "$@"; do dnf install -y "$p" || true; done; }',
+  'elif command -v yum >/dev/null 2>&1; then',
+  '  pm() { for p in "$@"; do yum install -y "$p" || true; done; }',
+  'else',
+  '  pm() { :; }',
+  'fi',
 ].join('\n');
 
-const PIP = 'pip3 install --break-system-packages';
+// Cross-distro installers (apt & dnf systems, x86_64).
+const DOCKER = 'curl -fsSL https://get.docker.com | sh || true';
+const KUBECTL = 'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && install -m 0755 kubectl /usr/local/bin/kubectl || true';
+const HELM = 'curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true';
+const MINIKUBE = 'curl -Lo /usr/local/bin/minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && chmod +x /usr/local/bin/minikube || true';
+const TERRAFORM = 'pm unzip; curl -fsSL https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_amd64.zip -o /tmp/tf.zip && unzip -o /tmp/tf.zip -d /usr/local/bin/ || true';
+const AWSCLI = 'pm unzip; curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/aws.zip && unzip -q /tmp/aws.zip -d /tmp && /tmp/aws/install || true';
+const GCLOUD = 'curl -sSL https://sdk.cloud.google.com | bash || true';
+const NODE = 'if command -v apt-get >/dev/null 2>&1; then curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && apt-get install -y nodejs; else curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - && (dnf install -y nodejs || yum install -y nodejs); fi || true';
+const AZURE = 'if command -v apt-get >/dev/null 2>&1; then curl -sL https://aka.ms/InstallAzureCLIDeb | bash; else rpm --import https://packages.microsoft.com/keys/microsoft.asc && dnf install -y https://packages.microsoft.com/config/rhel/9/packages-microsoft-prod.rpm && dnf install -y azure-cli; fi || true';
+const pip = (pkgs: string) => `python3 -m pip install --break-system-packages ${pkgs} 2>/dev/null || python3 -m pip install ${pkgs} || true`;
 
 export const COURSES: Record<string, CoursePreset> = {
   cloud: {
@@ -113,14 +133,9 @@ export const COURSES: Record<string, CoursePreset> = {
     description: 'Azure CLI, AWS CLI, Google Cloud CLI, Terraform, kubectl, Docker, Helm, Ansible.',
     tools: ['Azure CLI', 'AWS CLI', 'gcloud', 'Terraform', 'kubectl', 'Docker', 'Helm', 'Ansible'],
     install: [
-      '$APT git curl unzip apt-transport-https ca-certificates gnupg lsb-release || true',
-      'curl -fsSL https://get.docker.com | sh || true',
-      'curl -sL https://aka.ms/InstallAzureCLIDeb | bash || true',
-      'curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/aws.zip && unzip -q /tmp/aws.zip -d /tmp && /tmp/aws/install || true',
-      'curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp.gpg && echo "deb [signed-by=/usr/share/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" > /etc/apt/sources.list.d/hashicorp.list && apt-get update -y && $APT terraform || true',
-      'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && install -m 0755 kubectl /usr/local/bin/kubectl || true',
-      'curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true',
-      '$APT ansible || true',
+      'pm git curl unzip ca-certificates python3 python3-pip',
+      DOCKER, AZURE, AWSCLI, GCLOUD, TERRAFORM, KUBECTL, HELM,
+      `pm ansible; command -v ansible >/dev/null 2>&1 || ${pip('ansible')}`,
     ].join('\n'),
   },
   web: {
@@ -129,8 +144,8 @@ export const COURSES: Record<string, CoursePreset> = {
     description: 'Node.js LTS, npm, Git, Nginx, Python 3, build-essential.',
     tools: ['Node.js LTS', 'npm', 'Git', 'Nginx', 'Python 3', 'build-essential'],
     install: [
-      '$APT git build-essential nginx python3 python3-pip || true',
-      'curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && $APT nodejs || true',
+      'pm git nginx python3 python3-pip build-essential gcc gcc-c++ make',
+      NODE,
     ].join('\n'),
   },
   data: {
@@ -139,8 +154,8 @@ export const COURSES: Record<string, CoursePreset> = {
     description: 'Python 3, Jupyter, NumPy, pandas, matplotlib, scikit-learn, R.',
     tools: ['Python 3', 'Jupyter', 'NumPy', 'pandas', 'matplotlib', 'scikit-learn', 'R'],
     install: [
-      '$APT python3 python3-pip python3-venv r-base || true',
-      `${PIP} jupyter numpy pandas matplotlib scikit-learn seaborn || pip3 install jupyter numpy pandas matplotlib scikit-learn seaborn || true`,
+      'pm python3 python3-pip python3-venv r-base R',
+      pip('jupyter numpy pandas matplotlib scikit-learn seaborn'),
     ].join('\n'),
   },
   containers: {
@@ -148,47 +163,42 @@ export const COURSES: Record<string, CoursePreset> = {
     label: 'Conteneurs & Kubernetes',
     description: 'Docker, kubectl, minikube, Helm, k9s.',
     tools: ['Docker', 'kubectl', 'minikube', 'Helm', 'k9s'],
-    install: [
-      'curl -fsSL https://get.docker.com | sh || true',
-      'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && install -m 0755 kubectl /usr/local/bin/kubectl || true',
-      'curl -Lo /usr/local/bin/minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && chmod +x /usr/local/bin/minikube || true',
-      'curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash || true',
-    ].join('\n'),
+    install: [DOCKER, KUBECTL, MINIKUBE, HELM].join('\n'),
   },
   cyber: {
     id: 'cyber',
     label: 'Cybersécurité',
     description: 'nmap, tshark, hydra, john, tcpdump, nikto, net-tools, whois, dnsutils.',
     tools: ['nmap', 'tshark', 'hydra', 'john', 'tcpdump', 'nikto', 'net-tools', 'whois'],
-    install: ['$APT nmap tshark hydra john tcpdump nikto net-tools whois dnsutils || true'].join('\n'),
+    install: ['pm nmap tshark wireshark-cli hydra john tcpdump nikto net-tools whois dnsutils bind-utils'].join('\n'),
   },
   db: {
     id: 'db',
     label: 'Bases de données',
     description: 'PostgreSQL, MariaDB (MySQL), Redis, SQLite.',
     tools: ['PostgreSQL', 'MariaDB', 'Redis', 'SQLite'],
-    install: ['$APT postgresql mariadb-server redis-server sqlite3 || true'].join('\n'),
+    install: ['pm postgresql postgresql-server mariadb-server mariadb redis redis-server sqlite sqlite3'].join('\n'),
   },
   sysadmin: {
     id: 'sysadmin',
     label: 'Système & Réseau',
     description: 'net-tools, tcpdump, nmap, htop, tmux, rsync, iperf3, traceroute, vim.',
     tools: ['net-tools', 'tcpdump', 'nmap', 'htop', 'tmux', 'rsync', 'iperf3', 'traceroute'],
-    install: ['$APT net-tools tcpdump nmap htop tmux rsync openssh-client iperf3 traceroute vim || true'].join('\n'),
+    install: ['pm net-tools tcpdump nmap htop tmux rsync openssh-client openssh-clients iperf3 traceroute vim'].join('\n'),
   },
   cpp: {
     id: 'cpp',
     label: 'Programmation C / C++',
     description: 'gcc, g++, gdb, make, cmake, valgrind, build-essential.',
     tools: ['gcc', 'g++', 'gdb', 'make', 'cmake', 'valgrind'],
-    install: ['$APT build-essential gdb cmake valgrind || true'].join('\n'),
+    install: ['pm build-essential gcc gcc-c++ make gdb cmake valgrind'].join('\n'),
   },
   java: {
     id: 'java',
     label: 'Java',
     description: 'OpenJDK 17, Maven, Gradle.',
     tools: ['OpenJDK 17', 'Maven', 'Gradle'],
-    install: ['$APT openjdk-17-jdk maven gradle || true'].join('\n'),
+    install: ['pm openjdk-17-jdk java-17-openjdk java-17-openjdk-devel maven gradle'].join('\n'),
   },
   python: {
     id: 'python',
@@ -196,8 +206,8 @@ export const COURSES: Record<string, CoursePreset> = {
     description: 'Python 3, pip, venv, pipx, IPython, Jupyter.',
     tools: ['Python 3', 'pip', 'venv', 'pipx', 'IPython', 'Jupyter'],
     install: [
-      '$APT python3 python3-pip python3-venv pipx || true',
-      `${PIP} ipython jupyter || pip3 install ipython jupyter || true`,
+      'pm python3 python3-pip python3-venv pipx',
+      pip('ipython jupyter'),
     ].join('\n'),
   },
 };
