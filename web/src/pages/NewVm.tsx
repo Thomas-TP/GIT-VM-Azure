@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '../api';
 import { useToast } from '../toast';
 import type { OsPreset, PresetCatalog } from '../types';
-import { Button, Card, IconBack, IconCheck, Input, Spinner, Textarea } from '../ui';
+import { Button, Card, IconBack, IconCheck, Input, Modal, Spinner, Textarea } from '../ui';
 import { OsIcon } from '../components/OsIcon';
 import { DatePicker } from '../components/DatePicker';
 
@@ -29,7 +29,6 @@ interface VmCfg {
   course: string;
   start: string;
   end: string;
-  purpose: string;
 }
 
 function Section({ n, title, hint, children }: { n: number; title: string; hint: string; children: React.ReactNode }) {
@@ -204,10 +203,6 @@ function VmConfig({ vm, onChange, catalog }: { vm: VmCfg; onChange: (patch: Part
         </div>
         {!datesValid && <p className="text-xs text-amber-500">{t('newvm.endRequired')}</p>}
       </Section>
-
-      <Section n={6} title={t('newvm.purpose')} hint={t('newvm.purposeHint')}>
-        <Textarea rows={3} value={vm.purpose} onChange={(e) => onChange({ purpose: e.target.value })} placeholder={t('newvm.purposePlaceholder')} />
-      </Section>
     </div>
   );
 }
@@ -236,13 +231,14 @@ function NewVmForm({ catalog, nav, qc, toast }: { catalog: PresetCatalog; nav: R
     course: '',
     start: toLocalInput(new Date()),
     end: toLocalInput(new Date(Date.now() + 7 * DAY)),
-    purpose: '',
   });
 
   const [vms, setVms] = useState<VmCfg[]>([makeDefault()]);
   const [active, setActive] = useState(0);
   const [groupEnabled, setGroupEnabled] = useState(false);
   const [groupName, setGroupName] = useState('');
+  const [purpose, setPurpose] = useState('');
+  const [showSubmit, setShowSubmit] = useState(false);
 
   const count = vms.length;
   const setCount = (n: number) => {
@@ -257,7 +253,7 @@ function NewVmForm({ catalog, nav, qc, toast }: { catalog: PresetCatalog; nav: R
   const applyToAll = () => setVms((prev) => prev.map(() => ({ ...prev[active] })));
 
   const validVm = (vm: VmCfg) => {
-    if (!vm.perf || !vm.storage || !vm.os || !vm.purpose.trim()) return false;
+    if (!vm.perf || !vm.storage || !vm.os) return false;
     const end = vm.end ? new Date(vm.end) : null;
     const start = vm.start ? new Date(vm.start) : null;
     if (!end || isNaN(end.getTime()) || end.getTime() <= Date.now()) return false;
@@ -278,11 +274,12 @@ function NewVmForm({ catalog, nav, qc, toast }: { catalog: PresetCatalog; nav: R
   const m = useMutation({
     mutationFn: () =>
       api.createBatch(
-        vms.map((v) => ({ perf: v.perf, storage: v.storage, os: v.os, purpose: v.purpose.trim(), startDate: v.start ? new Date(v.start).toISOString() : null, endDate: new Date(v.end).toISOString(), course: v.course })),
+        vms.map((v) => ({ perf: v.perf, storage: v.storage, os: v.os, purpose: purpose.trim(), startDate: v.start ? new Date(v.start).toISOString() : null, endDate: new Date(v.end).toISOString(), course: v.course })),
         groupEnabled && groupName.trim() ? { name: groupName.trim() } : undefined
       ),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['requests'] });
+      setShowSubmit(false);
       toast.success(t('newvm.createdN', { count: res.ids.length }));
       if (res.groupId || res.ids.length > 1) nav('/');
       else nav(`/requests/${res.ids[0]}`);
@@ -388,13 +385,30 @@ function NewVmForm({ catalog, nav, qc, toast }: { catalog: PresetCatalog; nav: R
               <div className="mt-0.5 text-right text-xs text-muted-foreground">/{t('newvm.month')}</div>
             </div>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t('newvm.costNote')}</p>
-            <Button className="mt-4 w-full" disabled={!allValid || m.isPending} onClick={() => m.mutate()}>
-              {m.isPending ? <Spinner className="h-4 w-4" /> : null}
-              {m.isPending ? t('newvm.submitting') : t('newvm.submitN', { count })}
+            <Button className="mt-4 w-full" disabled={!allValid} onClick={() => setShowSubmit(true)}>
+              {t('newvm.submitN', { count })}
             </Button>
           </Card>
         </aside>
       </div>
+
+      <Modal
+        open={showSubmit}
+        onClose={() => { if (!m.isPending) setShowSubmit(false); }}
+        title={t('newvm.justifyTitle')}
+        description={count > 1 ? t('newvm.justifyHintGroup') : t('newvm.justifyHint')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowSubmit(false)} disabled={m.isPending}>{t('common.cancel')}</Button>
+            <Button onClick={() => m.mutate()} disabled={!purpose.trim() || m.isPending}>
+              {m.isPending ? <Spinner className="h-4 w-4" /> : null}
+              {m.isPending ? t('newvm.submitting') : t('newvm.submitN', { count })}
+            </Button>
+          </>
+        }
+      >
+        <Textarea rows={3} value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder={t('newvm.purposePlaceholder')} />
+      </Modal>
     </div>
   );
 }

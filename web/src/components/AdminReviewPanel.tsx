@@ -33,6 +33,11 @@ export function AdminReviewPanel({ request }: { request: VmRequest }) {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-border bg-muted/40 p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t('admin.justification')}</p>
+        <p className="mt-1 whitespace-pre-line text-sm">{request.purpose || '—'}</p>
+      </div>
+
       {isPending && (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
