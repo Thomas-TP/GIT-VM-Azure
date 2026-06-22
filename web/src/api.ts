@@ -56,6 +56,10 @@ export const api = {
   groupRename: (groupId: string, name: string) =>
     req<{ ok: true }>(`/api/groups/${groupId}/rename`, { method: 'POST', body: JSON.stringify({ name }) }),
   groupDissolve: (groupId: string) => req<{ ok: true }>(`/api/groups/${groupId}/dissolve`, { method: 'POST' }),
+  groupSchedule: (groupId: string, payload: { enabled: boolean; start?: string; stop?: string; days?: number[] }) =>
+    req<{ ok: true }>(`/api/groups/${groupId}/schedule`, { method: 'POST', body: JSON.stringify(payload) }),
+  groupExtend: (groupId: string, until: string) =>
+    req<{ ok: true }>(`/api/groups/${groupId}/extend`, { method: 'POST', body: JSON.stringify({ until }) }),
   createGroup: (name: string, ids: number[]) =>
     req<{ ok: true; groupId: string; groupName: string }>('/api/groups', { method: 'POST', body: JSON.stringify({ name, ids }) }),
   getRequest: (id: number) => req<{ request: VmRequest }>(`/api/requests/${id}`).then((r) => r.request),

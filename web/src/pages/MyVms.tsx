@@ -10,6 +10,7 @@ import { useToast } from '../toast';
 import { StatusBadge } from '../components/StatusBadge';
 import { OsIcon } from '../components/OsIcon';
 import { RequestsTable } from '../components/RequestsTable';
+import { GroupActions } from '../components/GroupActions';
 
 function Stat({ label, value, dot }: { label: string; value: number; dot: string }) {
   return (
@@ -192,6 +193,7 @@ export function MyVms() {
                       <GIcon title={t('actions.reboot')} onClick={() => groupActM.mutate({ groupId: gid, action: 'reboot' })}><IconReboot className="h-4 w-4" /></GIcon>
                       <GIcon title={t('actions.terminate')} onClick={() => setGroupTermId(gid)}><IconTrash className="h-4 w-4 text-red-600" /></GIcon>
                       <span className="mx-1 h-5 w-px bg-border" />
+                      <GroupActions groupId={gid} />
                       <button onClick={() => { setRenameId(gid); setRenameVal(grp.name); }} className="rounded-md px-2 py-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground">{t('myvms.rename')}</button>
                       <button onClick={() => dissolveM.mutate(gid)} className="rounded-md px-2 py-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground">{t('myvms.dissolve')}</button>
                     </div>

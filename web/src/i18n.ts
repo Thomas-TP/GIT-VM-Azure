@@ -273,6 +273,10 @@ const fr = {
     noGroup: 'Sans groupe',
     vmCount: '{{count}} VM',
     createGroupBtn: 'Créer le groupe ({{count}})',
+    groupSchedule: 'Planifier',
+    groupScheduleHint: 'Applique cette planification à toutes les VM du groupe.',
+    groupExtend: 'Prolonger',
+    groupExtendHint: 'Demande une prolongation pour toutes les VM actives du groupe.',
   },
   newvm: {
     eyebrow: 'Nouvelle machine virtuelle',
@@ -709,6 +713,10 @@ const en: typeof fr = {
     noGroup: 'Ungrouped',
     vmCount: '{{count}} VM',
     createGroupBtn: 'Create group ({{count}})',
+    groupSchedule: 'Schedule',
+    groupScheduleHint: 'Applies this schedule to every VM in the group.',
+    groupExtend: 'Extend',
+    groupExtendHint: 'Request an extension for all active VMs in the group.',
   },
   newvm: {
     eyebrow: 'New virtual machine',

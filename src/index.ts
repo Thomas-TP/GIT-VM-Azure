@@ -396,6 +396,45 @@ app.post('/api/groups/:groupId/dissolve', apiAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// Schedule all owned VMs in a group at once.
+app.post('/api/groups/:groupId/schedule', apiAuth, async (c) => {
+  const user = c.get('user');
+  const groupId = c.req.param('groupId');
+  const vms = await listGroupVms(c.env, user.email, groupId);
+  if (!vms.length) return c.json({ error: 'not_found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const enabled = !!body.enabled;
+  if (enabled) {
+    const start = String(body.start ?? ''), stop = String(body.stop ?? '');
+    const days = Array.isArray(body.days)
+      ? [...new Set(body.days.map(Number).filter((d: number) => Number.isInteger(d) && d >= 1 && d <= 7))]
+      : [];
+    if (!HHMM.test(start) || !HHMM.test(stop) || start === stop || !days.length) return c.json({ error: 'invalid_schedule' }, 400);
+    const csv = (days as number[]).sort((a, b) => a - b).join(',');
+    for (const vm of vms) await setSchedule(c.env, vm.id, true, start, stop, csv);
+  } else {
+    for (const vm of vms) await setSchedule(c.env, vm.id, false, null, null, null);
+  }
+  await audit(c.env, user.email, 'group.schedule', `grp:${groupId}`, enabled ? 'on' : 'off');
+  return c.json({ ok: true });
+});
+
+// Request an extension for all active VMs in a group.
+app.post('/api/groups/:groupId/extend', apiAuth, async (c) => {
+  const user = c.get('user');
+  const groupId = c.req.param('groupId');
+  const until = (await c.req.json().catch(() => ({}))).until;
+  const u = until ? new Date(String(until)) : null;
+  if (!u || isNaN(u.getTime()) || u.getTime() <= Date.now()) return c.json({ error: 'invalid_date' }, 400);
+  const active = (await listGroupVms(c.env, user.email, groupId)).filter((v) => v.status === 'active' && !v.expired_at);
+  if (!active.length) return c.json({ error: 'none_extendable' }, 409);
+  for (const v of active) await requestExtension(c.env, v.id, u.toISOString());
+  await notifyAdminsInApp(c.env, 'ext_request', '/admin');
+  c.executionCtx.waitUntil(notifyAdminsExtension(c.env, active[0].id, user.email, u.toISOString()));
+  await audit(c.env, user.email, 'group.extend', `grp:${groupId}`, u.toISOString());
+  return c.json({ ok: true });
+});
+
 // Bulk action on all owned VMs in a group.
 app.post('/api/groups/:groupId/action', apiAuth, async (c) => {
   const user = c.get('user');
