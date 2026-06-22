@@ -13,7 +13,6 @@ import { SchedulePanel } from '../components/SchedulePanel';
 import { SnapshotPanel } from '../components/SnapshotPanel';
 import { ExtensionPanel } from '../components/ExtensionPanel';
 import { AdminReviewPanel } from '../components/AdminReviewPanel';
-import { Comments } from '../components/Comments';
 import { useToast } from '../toast';
 
 function Row({ label, children, mono }: { label: string; children: React.ReactNode; mono?: boolean }) {
@@ -53,6 +52,14 @@ function ProvisionSteps({ status }: { status: string }) {
   );
 }
 
+type Tab = 'overview' | 'access' | 'snapshots' | 'schedule';
+const TAB_ICON: Record<Tab, string> = {
+  overview: 'M4 5h16M4 12h16M4 19h10',
+  access: 'M15 7a2 2 0 0 1 2 2m4-2a6 6 0 0 1-7.7 5.7l-1.6 1.6H10v2H8v2H4v-4l5.3-5.3A6 6 0 1 1 21 7z',
+  snapshots: 'M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9m18 0H3m18 0 1.5 3a1 1 0 0 1-.9 1.4H2.4a1 1 0 0 1-.9-1.4L3 15',
+  schedule: 'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
+};
+
 export function RequestDetail() {
   const { t } = useTranslation();
   const { id } = useParams();
@@ -61,6 +68,7 @@ export function RequestDetail() {
   const toast = useToast();
   const [confirmTerm, setConfirmTerm] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [tab, setTab] = useState<Tab>('overview');
 
   const q = useQuery({
     queryKey: ['request', rid],
@@ -143,6 +151,90 @@ export function RequestDetail() {
   const vmState = liveQ.data?.state ?? r.vm_state ?? 'none';
   const ip = liveQ.data?.publicIp ?? r.public_ip ?? null;
   const canTerm = r.status === 'active' || r.status === 'provisioning' || r.status === 'failed';
+  const isAdmin = meQ.data?.role === 'admin';
+  const live = r.status === 'active' && !r.expired_at;
+
+  const tabs: { id: Tab; label: string }[] = live
+    ? [
+        { id: 'overview', label: t('detail.tabOverview') },
+        { id: 'access', label: t('detail.tabAccess') },
+        { id: 'snapshots', label: t('detail.tabSnapshots') },
+        { id: 'schedule', label: t('detail.tabSchedule') },
+      ]
+    : [{ id: 'overview', label: t('detail.tabOverview') }];
+  const cur = tabs.some((x) => x.id === tab) ? tab : 'overview';
+
+  const overview = (
+    <div className="space-y-5">
+      {(r.status === 'pending' || r.status === 'approved' || r.status === 'provisioning') && (
+        <Card className="p-5"><ProvisionSteps status={r.status} /></Card>
+      )}
+      <div className="grid gap-5 md:grid-cols-2">
+        <Card className="p-5">
+          <Eyebrow>{t('detail.specs')}</Eyebrow>
+          <div className="divide-y divide-border">
+            <Row label={t('form.os')}>
+              <span className="inline-flex items-center gap-1.5">
+                {osDef && <OsIcon family={osDef.family} className="h-4 w-4" />}
+                {osDef?.label ?? r.os ?? '—'}
+              </span>
+            </Row>
+            <Row label={t('detail.instanceType')} mono>{perfDef?.instanceType ?? r.preset}</Row>
+            <Row label={t('detail.cpu')}>{perfDef ? `${perfDef.vcpu} vCPU` : '—'}</Row>
+            <Row label={t('detail.memory')}>{perfDef ? `${perfDef.ramGb} Go` : '—'}</Row>
+            <Row label={t('detail.disk')}>{storageDef?.label ?? r.storage ?? '—'}</Row>
+            <Row label={t('detail.connectMethod')}>{connect === 'rdp' ? 'RDP' : 'SSH'}</Row>
+            {courseDef && <Row label={t('newvm.course')}>{courseDef.label}</Row>}
+            <Row label={t('common.region')} mono>{r.region}</Row>
+          </div>
+          {courseDef && (
+            <div className="mt-3 border-t border-border pt-3">
+              {r.status === 'active' && (
+                <div className="mb-2 text-xs font-medium">
+                  {r.course_ready_at ? (
+                    <span className="text-emerald-600 dark:text-emerald-400">✓ {t('detail.toolsReady')}</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                      <Spinner className="h-3.5 w-3.5" /> {t('detail.toolsInstalling')}
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-1">
+                {courseDef.tools.map((tool) => (
+                  <span key={tool} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{tool}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-5">
+          <Eyebrow>{t('detail.overview')}</Eyebrow>
+          <div className="divide-y divide-border">
+            <Row label={t('table.purpose')}>{r.purpose}</Row>
+            <Row label={t('detail.requestedBy')}>{r.user_email}</Row>
+            <Row label={t('detail.createdAt')}>{fmtDate(r.created_at)}</Row>
+            {r.start_date && <Row label={t('detail.startDate')}>{fmtDate(r.start_date)}</Row>}
+            <Row label={t('detail.endDate')}>{fmtDate(r.end_date)}</Row>
+            {r.decided_by && <Row label={t('detail.decidedBy')}>{r.decided_by}</Row>}
+            {r.admin_note && <Row label={t('detail.adminNote')}>{r.admin_note}</Row>}
+            {r.status === 'active' && (
+              <Row label={t('detail.state')}>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className={`h-1.5 w-1.5 rounded-full ${vmState === 'running' ? 'bg-emerald-500' : vmState === 'stopped' ? 'bg-zinc-400' : 'bg-amber-500'}`} />
+                  {t(`vmState.${vmState}`, vmState)}
+                </span>
+              </Row>
+            )}
+            {vmState === 'running' && liveQ.data?.launchTime && <Row label={t('detail.uptime')}>{fmtUptime(liveQ.data.launchTime)}</Row>}
+            {ip && <Row label={t('detail.ip')} mono>{ip}</Row>}
+            {r.aws_instance_id && <Row label={t('detail.instance')} mono>{r.aws_instance_id}</Row>}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -190,126 +282,62 @@ export function RequestDetail() {
         </div>
       </div>
 
-      {(r.status === 'pending' || r.status === 'approved' || r.status === 'provisioning') && (
-        <Card className="p-5">
-          <ProvisionSteps status={r.status} />
-        </Card>
-      )}
-
-      {meQ.data?.role === 'admin' && (
+      {isAdmin && r.status === 'pending' && (
         <Card className="border-primary/20 p-5">
           <Eyebrow>{t('admin.review')}</Eyebrow>
           <AdminReviewPanel request={r} />
         </Card>
       )}
 
-      <div className="grid gap-5 md:grid-cols-2">
-        {/* Specs */}
+      {tabs.length > 1 && (
+        <div className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-muted/40 p-1">
+          {tabs.map((tb) => (
+            <button
+              key={tb.id}
+              onClick={() => setTab(tb.id)}
+              className={`flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition ${
+                cur === tb.id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d={TAB_ICON[tb.id]} /></svg>
+              {tb.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {cur === 'overview' && overview}
+
+      {cur === 'access' && (
         <Card className="p-5">
-          <Eyebrow>{t('detail.specs')}</Eyebrow>
-          <div className="divide-y divide-border">
-            <Row label={t('form.os')}>
-              <span className="inline-flex items-center gap-1.5">
-                {osDef && <OsIcon family={osDef.family} className="h-4 w-4" />}
-                {osDef?.label ?? r.os ?? '—'}
-              </span>
-            </Row>
-            <Row label={t('detail.instanceType')} mono>{perfDef?.instanceType ?? r.preset}</Row>
-            <Row label={t('detail.cpu')}>{perfDef ? `${perfDef.vcpu} vCPU` : '—'}</Row>
-            <Row label={t('detail.memory')}>{perfDef ? `${perfDef.ramGb} Go` : '—'}</Row>
-            <Row label={t('detail.disk')}>{storageDef?.label ?? r.storage ?? '—'}</Row>
-            <Row label={t('detail.connectMethod')}>{connect === 'rdp' ? 'RDP' : 'SSH'}</Row>
-            {courseDef && <Row label={t('newvm.course')}>{courseDef.label}</Row>}
-            <Row label={t('common.region')} mono>{r.region}</Row>
-          </div>
-          {courseDef && (
-            <div className="mt-3 border-t border-border pt-3">
-              {r.status === 'active' && (
-                <div className="mb-2 text-xs font-medium">
-                  {r.course_ready_at ? (
-                    <span className="text-emerald-600 dark:text-emerald-400">✓ {t('detail.toolsReady')}</span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-                      <Spinner className="h-3.5 w-3.5" /> {t('detail.toolsInstalling')}
-                    </span>
-                  )}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-1">
-                {courseDef.tools.map((tool) => (
-                  <span key={tool} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{tool}</span>
-                ))}
-              </div>
-            </div>
+          <Eyebrow>{t('guide.title')}</Eyebrow>
+          {r.status === 'active' && ip && vmState !== 'stopped' ? (
+            <ConnectionGuide id={r.id} ip={ip} user={sshUser} keyName={keyName} connect={connect} />
+          ) : (
+            <p className="py-6 text-center text-sm text-muted-foreground">{t('detail.notReady')}</p>
           )}
         </Card>
+      )}
 
-        {/* Request / lifecycle */}
+      {cur === 'snapshots' && (
         <Card className="p-5">
-          <Eyebrow>{t('detail.overview')}</Eyebrow>
-          <div className="divide-y divide-border">
-            <Row label={t('table.purpose')}>{r.purpose}</Row>
-            <Row label={t('detail.requestedBy')}>{r.user_email}</Row>
-            <Row label={t('detail.createdAt')}>{fmtDate(r.created_at)}</Row>
-            {r.start_date && <Row label={t('detail.startDate')}>{fmtDate(r.start_date)}</Row>}
-            <Row label={t('detail.endDate')}>{fmtDate(r.end_date)}</Row>
-            {r.decided_by && <Row label={t('detail.decidedBy')}>{r.decided_by}</Row>}
-            {r.admin_note && <Row label={t('detail.adminNote')}>{r.admin_note}</Row>}
-            {r.status === 'active' && (
-              <Row label={t('detail.state')}>
-                <span className="inline-flex items-center gap-1.5">
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      vmState === 'running' ? 'bg-emerald-500' : vmState === 'stopped' ? 'bg-zinc-400' : 'bg-amber-500'
-                    }`}
-                  />
-                  {t(`vmState.${vmState}`, vmState)}
-                </span>
-              </Row>
-            )}
-            {vmState === 'running' && liveQ.data?.launchTime && (
-              <Row label={t('detail.uptime')}>{fmtUptime(liveQ.data.launchTime)}</Row>
-            )}
-            {ip && <Row label={t('detail.ip')} mono>{ip}</Row>}
-            {r.aws_instance_id && <Row label={t('detail.instance')} mono>{r.aws_instance_id}</Row>}
-          </div>
+          <Eyebrow>{t('snapshot.title')}</Eyebrow>
+          <SnapshotPanel request={r} />
         </Card>
-      </div>
+      )}
 
-      {/* Connection */}
-      <Card className="p-5">
-        <Eyebrow>{t('guide.title')}</Eyebrow>
-        {r.status === 'active' && ip && vmState !== 'stopped' ? (
-          <ConnectionGuide id={r.id} ip={ip} user={sshUser} keyName={keyName} connect={connect} />
-        ) : r.status === 'active' && vmState === 'stopped' ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">{t('detail.notReady')}</p>
-        ) : (
-          <p className="py-6 text-center text-sm text-muted-foreground">{t('detail.notReady')}</p>
-        )}
-      </Card>
-
-      {r.status === 'active' && !r.expired_at && (
-        <>
+      {cur === 'schedule' && (
+        <div className="space-y-5">
           <Card className="p-5">
             <Eyebrow>{t('extension.title')}</Eyebrow>
-            <ExtensionPanel
-              request={r}
-              isAdmin={meQ.data?.role === 'admin'}
-              isOwner={meQ.data?.email === r.user_email}
-            />
+            <ExtensionPanel request={r} isAdmin={isAdmin} isOwner={meQ.data?.email === r.user_email} />
           </Card>
           <Card className="p-5">
             <Eyebrow>{t('schedule.title')}</Eyebrow>
             <SchedulePanel request={r} />
           </Card>
-          <Card className="p-5">
-            <Eyebrow>{t('snapshot.title')}</Eyebrow>
-            <SnapshotPanel request={r} />
-          </Card>
-        </>
+        </div>
       )}
-
-      <Comments requestId={rid} />
 
       <Modal
         open={confirmReset}
@@ -318,12 +346,9 @@ export function RequestDetail() {
         description={t('confirm.resetBody')}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setConfirmReset(false)} disabled={resetM.isPending}>
-              {t('common.cancel')}
-            </Button>
+            <Button variant="secondary" onClick={() => setConfirmReset(false)} disabled={resetM.isPending}>{t('common.cancel')}</Button>
             <Button variant="danger" onClick={() => resetM.mutate()} disabled={resetM.isPending}>
-              {resetM.isPending ? <Spinner className="h-4 w-4" /> : null}
-              {t('actions.reset')}
+              {resetM.isPending ? <Spinner className="h-4 w-4" /> : null}{t('actions.reset')}
             </Button>
           </>
         }
@@ -336,12 +361,9 @@ export function RequestDetail() {
         description={t('confirm.terminateBody')}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setConfirmTerm(false)} disabled={termM.isPending}>
-              {t('common.cancel')}
-            </Button>
+            <Button variant="secondary" onClick={() => setConfirmTerm(false)} disabled={termM.isPending}>{t('common.cancel')}</Button>
             <Button variant="danger" onClick={() => termM.mutate()} disabled={termM.isPending}>
-              {termM.isPending ? <Spinner className="h-4 w-4" /> : null}
-              {t('actions.terminate')}
+              {termM.isPending ? <Spinner className="h-4 w-4" /> : null}{t('actions.terminate')}
             </Button>
           </>
         }

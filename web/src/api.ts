@@ -1,4 +1,4 @@
-import type { PresetCatalog, User, VmRequest, Status, AdminUser, Comment, Metrics, AuditEntry, Notification, Snapshot } from './types';
+import type { PresetCatalog, User, VmRequest, Status, AdminUser, Metrics, AuditEntry, Notification, Snapshot } from './types';
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -107,15 +107,9 @@ export const api = {
   approve: (id: number) => req<{ ok: true }>(`/api/admin/requests/${id}/approve`, { method: 'POST' }),
   reject: (id: number, note: string) =>
     req<{ ok: true }>(`/api/admin/requests/${id}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
-  suggestModification: (id: number, note: string) =>
-    req<{ ok: true }>(`/api/admin/requests/${id}/suggest`, { method: 'POST', body: JSON.stringify({ note }) }),
   groupApprove: (groupId: string) => req<{ ok: true; approved: number }>(`/api/admin/groups/${groupId}/approve`, { method: 'POST' }),
   groupReject: (groupId: string, note: string) =>
     req<{ ok: true }>(`/api/admin/groups/${groupId}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
-
-  comments: (id: number) => req<{ comments: Comment[] }>(`/api/requests/${id}/comments`).then((r) => r.comments),
-  addComment: (id: number, body: string) =>
-    req<{ ok: true }>(`/api/requests/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
 
   notifications: () => req<{ notifications: Notification[]; unread: number }>('/api/notifications'),
   markNotificationsRead: () => req<{ ok: true }>('/api/notifications/read', { method: 'POST' }),

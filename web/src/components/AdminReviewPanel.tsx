@@ -11,25 +11,18 @@ export function AdminReviewPanel({ request }: { request: VmRequest }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [rejectNote, setRejectNote] = useState('');
-  const [suggestNote, setSuggestNote] = useState('');
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['request', request.id] });
     qc.invalidateQueries({ queryKey: ['requests'] });
     qc.invalidateQueries({ queryKey: ['admin-all'] });
     qc.invalidateQueries({ queryKey: ['admin-stats'] });
-    qc.invalidateQueries({ queryKey: ['comments', request.id] });
   };
   const onErr = () => toast.error(t('toast.error'));
   const approveM = useMutation({ mutationFn: () => api.approve(request.id), onSuccess: () => { invalidate(); toast.success(t('toast.approved')); }, onError: onErr });
   const rejectM = useMutation({ mutationFn: () => api.reject(request.id, rejectNote.trim()), onSuccess: () => { invalidate(); setRejectNote(''); toast.success(t('toast.rejected')); }, onError: onErr });
   const gApproveM = useMutation({ mutationFn: () => api.groupApprove(request.group_id!), onSuccess: () => { invalidate(); toast.success(t('toast.approved')); }, onError: onErr });
   const gRejectM = useMutation({ mutationFn: () => api.groupReject(request.group_id!, rejectNote.trim()), onSuccess: () => { invalidate(); setRejectNote(''); toast.success(t('toast.rejected')); }, onError: onErr });
-  const suggestM = useMutation({
-    mutationFn: () => api.suggestModification(request.id, suggestNote.trim()),
-    onSuccess: () => { invalidate(); setSuggestNote(''); toast.success(t('toast.suggested')); },
-    onError: onErr,
-  });
 
   const isPending = request.status === 'pending';
   const inGroup = !!request.group_id;
@@ -82,17 +75,6 @@ export function AdminReviewPanel({ request }: { request: VmRequest }) {
           </label>
         </div>
       )}
-
-      <div className="space-y-2 border-t border-border pt-4">
-        <span className="block text-xs font-medium text-muted-foreground">{t('admin.suggest')}</span>
-        <Textarea rows={2} value={suggestNote} onChange={(e) => setSuggestNote(e.target.value)} placeholder={t('admin.suggestPlaceholder')} />
-        <div className="flex justify-end">
-          <Button variant="secondary" disabled={!suggestNote.trim() || suggestM.isPending} onClick={() => suggestM.mutate()}>
-            {suggestM.isPending ? <Spinner className="h-4 w-4" /> : null}
-            {t('admin.suggestSend')}
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }
