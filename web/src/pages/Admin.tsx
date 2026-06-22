@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { useToast } from '../toast';
 import type { AuditEntry, Metrics, OsPreset, PerfPreset, PresetCatalog, Status, VmRequest } from '../types';
-import { Button, Card, IconDownload, IconPlay, IconReboot, IconStop, IconTrash, Select, Spinner, TableSkeleton } from '../ui';
+import { Button, Card, IconCheck, IconDownload, IconPlay, IconReboot, IconStop, IconTrash, IconX, Modal, Select, Spinner, TableSkeleton, Textarea } from '../ui';
 import { fmtDate } from '../lib/format';
 import { OsIcon } from '../components/OsIcon';
 import { RequestsTable } from '../components/RequestsTable';
@@ -170,18 +170,42 @@ function RequestsSection({ rows, loading, catalog }: { rows: VmRequest[]; loadin
     return m;
   }, [catalog]);
 
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [rejectGroupId, setRejectGroupId] = useState<string | null>(null);
+  const [groupNote, setGroupNote] = useState('');
+  const invalidateAdmin = () => { qc.invalidateQueries({ queryKey: ['admin-all'] }); qc.invalidateQueries({ queryKey: ['admin-stats'] }); };
+  const onErr = () => toast.error(t('toast.error'));
+  const gApproveM = useMutation({ mutationFn: (gid: string) => api.groupApprove(gid), onSuccess: () => { invalidateAdmin(); toast.success(t('toast.approved')); }, onError: onErr });
+  const gRejectM = useMutation({ mutationFn: (v: { gid: string; note: string }) => api.groupReject(v.gid, v.note), onSuccess: () => { invalidateAdmin(); setRejectGroupId(null); setGroupNote(''); toast.success(t('toast.rejected')); }, onError: onErr });
+
   const eff = (r: VmRequest): Status => (r.expired_at ? 'expired' : r.status);
   const display = useMemo(() => {
     const q = search.trim().toLowerCase();
     let r = rows;
     if (filter) r = r.filter((x) => eff(x) === filter);
-    if (q) r = r.filter((x) => x.user_email.toLowerCase().includes(q) || x.purpose.toLowerCase().includes(q));
+    if (q) r = r.filter((x) => x.user_email.toLowerCase().includes(q) || x.purpose.toLowerCase().includes(q) || (x.group_name ?? '').toLowerCase().includes(q));
     return [...r].sort((a, b) => (sortAsc ? a.created_at.localeCompare(b.created_at) : b.created_at.localeCompare(a.created_at)));
   }, [rows, filter, search, sortAsc]);
 
-  const pageCount = Math.max(1, Math.ceil(display.length / PER_PAGE));
+  // Groups that still have pending requests -> shown as cards with bulk approve/reject.
+  const pendingGroups = useMemo(() => {
+    const g = new Map<string, { name: string; rows: VmRequest[]; pending: number }>();
+    for (const r of display) {
+      if (!r.group_id) continue;
+      const e = g.get(r.group_id) ?? { name: r.group_name ?? r.group_id, rows: [], pending: 0 };
+      e.rows.push(r);
+      if (r.status === 'pending') e.pending++;
+      g.set(r.group_id, e);
+    }
+    return [...g.entries()].filter(([, v]) => v.pending > 0);
+  }, [display]);
+  const pendingGroupIds = useMemo(() => new Set(pendingGroups.map(([gid]) => gid)), [pendingGroups]);
+  const otherRows = useMemo(() => display.filter((r) => !r.group_id || !pendingGroupIds.has(r.group_id)), [display, pendingGroupIds]);
+
+  const pageCount = Math.max(1, Math.ceil(otherRows.length / PER_PAGE));
   const safePage = Math.min(page, pageCount - 1);
-  const slice = display.slice(safePage * PER_PAGE, safePage * PER_PAGE + PER_PAGE);
+  const slice = otherRows.slice(safePage * PER_PAGE, safePage * PER_PAGE + PER_PAGE);
 
   return (
     <div className="space-y-4">
@@ -221,9 +245,33 @@ function RequestsSection({ rows, loading, catalog }: { rows: VmRequest[]; loadin
           </div>
         </div>
       )}
+      {pendingGroups.length > 0 && (
+        <div className="space-y-3">
+          {pendingGroups.map(([gid, grp]) => (
+            <Card key={gid} className="overflow-hidden border-amber-500/30">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-amber-500/[0.06] px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{grp.name}</span>
+                  <span className="text-xs text-muted-foreground">· {t('admin.groupPending', { count: grp.pending })}</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button disabled={gApproveM.isPending} onClick={() => gApproveM.mutate(gid)}>
+                    {gApproveM.isPending ? <Spinner className="h-4 w-4" /> : <IconCheck className="h-4 w-4" />}
+                    {t('admin.approveGroup')}
+                  </Button>
+                  <Button variant="danger" onClick={() => { setRejectGroupId(gid); setGroupNote(''); }}>
+                    <IconX className="h-4 w-4" /> {t('admin.rejectGroup')}
+                  </Button>
+                </div>
+              </div>
+              <div className="p-3"><RequestsTable rows={grp.rows} presets={presetMap} admin /></div>
+            </Card>
+          ))}
+        </div>
+      )}
       {loading ? (
         <TableSkeleton rows={6} />
-      ) : (
+      ) : otherRows.length === 0 && pendingGroups.length > 0 ? null : (
         <>
           <RequestsTable rows={slice} presets={presetMap} admin />
           {pageCount > 1 && (
@@ -237,6 +285,25 @@ function RequestsSection({ rows, loading, catalog }: { rows: VmRequest[]; loadin
           )}
         </>
       )}
+
+      <Modal
+        open={!!rejectGroupId}
+        onClose={() => setRejectGroupId(null)}
+        title={t('admin.rejectGroup')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRejectGroupId(null)} disabled={gRejectM.isPending}>{t('common.cancel')}</Button>
+            <Button variant="danger" disabled={gRejectM.isPending} onClick={() => rejectGroupId && gRejectM.mutate({ gid: rejectGroupId, note: groupNote.trim() })}>
+              {gRejectM.isPending ? <Spinner className="h-4 w-4" /> : null}{t('actions.reject')}
+            </Button>
+          </>
+        }
+      >
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-muted-foreground">{t('admin.rejectReason')}</span>
+          <Textarea rows={2} value={groupNote} onChange={(e) => setGroupNote(e.target.value)} />
+        </label>
+      </Modal>
     </div>
   );
 }
