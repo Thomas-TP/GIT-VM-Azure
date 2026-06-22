@@ -98,6 +98,9 @@ export const api = {
     req<{ ok: true }>(`/api/admin/requests/${id}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
   suggestModification: (id: number, note: string) =>
     req<{ ok: true }>(`/api/admin/requests/${id}/suggest`, { method: 'POST', body: JSON.stringify({ note }) }),
+  groupApprove: (groupId: string) => req<{ ok: true; approved: number }>(`/api/admin/groups/${groupId}/approve`, { method: 'POST' }),
+  groupReject: (groupId: string, note: string) =>
+    req<{ ok: true }>(`/api/admin/groups/${groupId}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
 
   comments: (id: number) => req<{ comments: Comment[] }>(`/api/requests/${id}/comments`).then((r) => r.comments),
   addComment: (id: number, body: string) =>

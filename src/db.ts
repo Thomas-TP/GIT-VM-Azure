@@ -146,6 +146,12 @@ export interface GroupVm {
   state: string | null;
 }
 
+// All requests in a group (admin scope — any owner) for group-level decisions.
+export async function listGroupRequests(env: Env, groupId: string): Promise<VmRequestRow[]> {
+  const res = await env.DB.prepare(`SELECT * FROM vm_requests WHERE group_id = ?1 ORDER BY id`).bind(groupId).all<VmRequestRow>();
+  return res.results ?? [];
+}
+
 // Owned VMs in a group, with the bits needed for bulk start/stop/reboot/terminate.
 export async function listGroupVms(env: Env, owner: string, groupId: string): Promise<GroupVm[]> {
   const res = await env.DB.prepare(

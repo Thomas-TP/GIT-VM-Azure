@@ -52,6 +52,7 @@ import {
   approveExtension,
   rejectExtension,
   listGroupVms,
+  listGroupRequests,
   assignGroup,
   renameGroup,
   clearGroup,
@@ -752,6 +753,45 @@ app.post('/api/admin/requests/:id/approve', apiAdmin, async (c) => {
     await audit(c.env, 'system', 'vm.launch.failed', `req:${id}`, e.message);
     return c.json({ error: e.message }, 500);
   }
+});
+
+// Approve / reject ALL pending requests in a group at once.
+app.post('/api/admin/groups/:groupId/approve', apiAdmin, async (c) => {
+  const admin = c.get('user');
+  const groupId = c.req.param('groupId');
+  const reqs = (await listGroupRequests(c.env, groupId)).filter((r) => r.status === 'pending');
+  if (!reqs.length) return c.json({ error: 'no_pending' }, 409);
+  let approved = 0;
+  for (const req of reqs) {
+    await setRequestStatus(c.env, req.id, 'provisioning', admin.email);
+    try {
+      const iid = await provisionRequest(c.env, req);
+      await audit(c.env, admin.email, 'vm.launch', `req:${req.id}`, iid);
+      approved++;
+    } catch (e: any) {
+      await setRequestStatus(c.env, req.id, 'failed', undefined, `provisioning: ${e.message}`);
+      await audit(c.env, 'system', 'vm.launch.failed', `req:${req.id}`, e.message);
+    }
+    await addNotification(c.env, req.user_email, 'approved', `/requests/${req.id}`);
+  }
+  c.executionCtx.waitUntil(notifyUserApproved(c.env, reqs[0].user_email, reqs[0].id));
+  await audit(c.env, admin.email, 'group.approve', `grp:${groupId}`, `${approved}/${reqs.length}`);
+  return c.json({ ok: true, approved });
+});
+
+app.post('/api/admin/groups/:groupId/reject', apiAdmin, async (c) => {
+  const admin = c.get('user');
+  const groupId = c.req.param('groupId');
+  const note = String((await c.req.json().catch(() => ({}))).note ?? '').trim();
+  const reqs = (await listGroupRequests(c.env, groupId)).filter((r) => r.status === 'pending');
+  if (!reqs.length) return c.json({ error: 'no_pending' }, 409);
+  for (const req of reqs) {
+    await setRequestStatus(c.env, req.id, 'rejected', admin.email, note);
+    await addNotification(c.env, req.user_email, 'rejected', `/requests/${req.id}`);
+  }
+  c.executionCtx.waitUntil(notifyUserRejected(c.env, reqs[0].user_email, reqs[0].id, note));
+  await audit(c.env, admin.email, 'group.reject', `grp:${groupId}`, `${reqs.length}`);
+  return c.json({ ok: true });
 });
 
 app.post('/api/admin/requests/:id/extend/approve', apiAdmin, async (c) => {
