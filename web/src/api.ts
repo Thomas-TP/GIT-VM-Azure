@@ -81,6 +81,8 @@ export const api = {
   approve: (id: number) => req<{ ok: true }>(`/api/admin/requests/${id}/approve`, { method: 'POST' }),
   reject: (id: number, note: string) =>
     req<{ ok: true }>(`/api/admin/requests/${id}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
+  suggestModification: (id: number, note: string) =>
+    req<{ ok: true }>(`/api/admin/requests/${id}/suggest`, { method: 'POST', body: JSON.stringify({ note }) }),
 
   comments: (id: number) => req<{ comments: Comment[] }>(`/api/requests/${id}/comments`).then((r) => r.comments),
   addComment: (id: number, body: string) =>

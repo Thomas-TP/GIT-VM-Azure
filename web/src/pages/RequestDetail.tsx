@@ -11,6 +11,7 @@ import { OsIcon } from '../components/OsIcon';
 import { ConnectionGuide } from '../components/ConnectionGuide';
 import { SchedulePanel } from '../components/SchedulePanel';
 import { ExtensionPanel } from '../components/ExtensionPanel';
+import { AdminReviewPanel } from '../components/AdminReviewPanel';
 import { Comments } from '../components/Comments';
 import { useToast } from '../toast';
 
@@ -191,6 +192,13 @@ export function RequestDetail() {
       {(r.status === 'pending' || r.status === 'approved' || r.status === 'provisioning') && (
         <Card className="p-5">
           <ProvisionSteps status={r.status} />
+        </Card>
+      )}
+
+      {meQ.data?.role === 'admin' && (
+        <Card className="border-primary/20 p-5">
+          <Eyebrow>{t('admin.review')}</Eyebrow>
+          <AdminReviewPanel request={r} />
         </Card>
       )}
 

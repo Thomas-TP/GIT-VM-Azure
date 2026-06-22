@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { useToast } from '../toast';
 import type { AuditEntry, Metrics, OsPreset, PerfPreset, PresetCatalog, Status, VmRequest } from '../types';
-import { Button, Card, Field, IconDownload, IconPlay, IconReboot, IconStop, IconTrash, Modal, Select, Spinner, TableSkeleton, Textarea } from '../ui';
+import { Button, Card, IconDownload, IconPlay, IconReboot, IconStop, IconTrash, Select, Spinner, TableSkeleton } from '../ui';
 import { fmtDate } from '../lib/format';
 import { StatusBadge } from '../components/StatusBadge';
 import { OsIcon } from '../components/OsIcon';
@@ -171,34 +171,16 @@ function OverviewSection({ stats, metrics }: { stats: Record<string, number>; me
 /* ---------- Requests ---------- */
 function RequestsSection({ rows, loading, catalog }: { rows: VmRequest[]; loading: boolean; catalog?: PresetCatalog }) {
   const { t } = useTranslation();
-  const qc = useQueryClient();
-  const toast = useToast();
   const [filter, setFilter] = useState<Status | ''>('');
   const [search, setSearch] = useState('');
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(0);
-  const [actingId, setActingId] = useState<number | null>(null);
-  const [rejectTarget, setRejectTarget] = useState<VmRequest | null>(null);
-  const [termTarget, setTermTarget] = useState<VmRequest | null>(null);
-  const [note, setNote] = useState('');
 
   const presetMap = useMemo(() => {
     const m: Record<string, PerfPreset> = {};
     catalog?.perf.forEach((p) => (m[p.id] = p));
     return m;
   }, [catalog]);
-
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['admin-all'] });
-    qc.invalidateQueries({ queryKey: ['admin-stats'] });
-    qc.invalidateQueries({ queryKey: ['admin-metrics'] });
-    qc.invalidateQueries({ queryKey: ['admin-audit'] });
-  };
-  const reset = () => { setActingId(null); setRejectTarget(null); setTermTarget(null); setNote(''); invalidate(); };
-  const onErr = () => { setActingId(null); toast.error(t('toast.error')); };
-  const approveM = useMutation({ mutationFn: (id: number) => api.approve(id), onSuccess: () => { reset(); toast.success(t('toast.approved')); }, onError: onErr });
-  const rejectM = useMutation({ mutationFn: (v: { id: number; note: string }) => api.reject(v.id, v.note), onSuccess: () => { reset(); toast.success(t('toast.rejected')); }, onError: onErr });
-  const termM = useMutation({ mutationFn: (id: number) => api.terminate(id), onSuccess: () => { reset(); toast.success(t('toast.terminated')); }, onError: onErr });
 
   const eff = (r: VmRequest): Status => (r.expired_at ? 'expired' : r.status);
   const display = useMemo(() => {
@@ -216,7 +198,7 @@ function RequestsSection({ rows, loading, catalog }: { rows: VmRequest[]; loadin
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <SectionTitle title={t('admin.all')} />
+        <SectionTitle title={t('admin.all')} hint={t('admin.requestsHint')} />
         <div className="flex flex-wrap items-end gap-2">
           <input
             value={search}
@@ -255,15 +237,7 @@ function RequestsSection({ rows, loading, catalog }: { rows: VmRequest[]; loadin
         <TableSkeleton rows={6} />
       ) : (
         <>
-          <RequestsTable
-            rows={slice}
-            presets={presetMap}
-            admin
-            busyId={actingId}
-            onApprove={(id) => { setActingId(id); approveM.mutate(id); }}
-            onReject={(r) => setRejectTarget(r)}
-            onTerminate={(r) => setTermTarget(r)}
-          />
+          <RequestsTable rows={slice} presets={presetMap} admin />
           {pageCount > 1 && (
             <div className="flex items-center justify-between text-sm text-muted-foreground">
               <span>{safePage + 1} / {pageCount}</span>
@@ -275,39 +249,6 @@ function RequestsSection({ rows, loading, catalog }: { rows: VmRequest[]; loadin
           )}
         </>
       )}
-
-      <Modal
-        open={!!rejectTarget}
-        onClose={() => setRejectTarget(null)}
-        title={t('confirm.rejectTitle')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setRejectTarget(null)} disabled={rejectM.isPending}>{t('common.cancel')}</Button>
-            <Button variant="danger" disabled={rejectM.isPending} onClick={() => { if (!rejectTarget) return; setActingId(rejectTarget.id); rejectM.mutate({ id: rejectTarget.id, note }); }}>
-              {rejectM.isPending ? <Spinner className="h-4 w-4" /> : null}{t('actions.reject')}
-            </Button>
-          </>
-        }
-      >
-        <Field label={t('confirm.rejectNote')}>
-          <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
-        </Field>
-      </Modal>
-
-      <Modal
-        open={!!termTarget}
-        onClose={() => setTermTarget(null)}
-        title={t('confirm.terminateTitle')}
-        description={t('confirm.terminateBody')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setTermTarget(null)} disabled={termM.isPending}>{t('common.cancel')}</Button>
-            <Button variant="danger" disabled={termM.isPending} onClick={() => { if (!termTarget) return; setActingId(termTarget.id); termM.mutate(termTarget.id); }}>
-              {termM.isPending ? <Spinner className="h-4 w-4" /> : null}{t('actions.terminate')}
-            </Button>
-          </>
-        }
-      />
     </div>
   );
 }

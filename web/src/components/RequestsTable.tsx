@@ -4,7 +4,7 @@ import type { PerfPreset, VmRequest } from '../types';
 import { fmtDate } from '../lib/format';
 import { displayStatus } from '../lib/status';
 import { StatusBadge } from './StatusBadge';
-import { IconCheck, IconDownload, IconServer, IconTrash, IconX, Spinner } from '../ui';
+import { IconDownload, IconServer, IconTrash, Spinner } from '../ui';
 import { api } from '../api';
 
 interface Props {
@@ -12,8 +12,6 @@ interface Props {
   presets: Record<string, PerfPreset>;
   admin?: boolean;
   busyId?: number | null;
-  onApprove?: (id: number) => void;
-  onReject?: (r: VmRequest) => void;
   onTerminate?: (r: VmRequest) => void;
 }
 
@@ -42,7 +40,7 @@ function IconBtn({
   );
 }
 
-export function RequestsTable({ rows, presets, admin, busyId, onApprove, onReject, onTerminate }: Props) {
+export function RequestsTable({ rows, presets, admin, busyId, onTerminate }: Props) {
   const { t } = useTranslation();
   const label = (id: string) => presets[id]?.label ?? id;
   const eff = displayStatus;
@@ -64,17 +62,7 @@ export function RequestsTable({ rows, presets, admin, busyId, onApprove, onRejec
     const busy = busyId === r.id;
     return (
       <div className="flex items-center justify-end gap-1.5">
-        {admin && r.status === 'pending' && (
-          <>
-            <IconBtn disabled={busy} onClick={() => onApprove?.(r.id)} title={t('actions.approve')}>
-              {busy ? <Spinner className="h-4 w-4" /> : <IconCheck className="h-4 w-4 text-emerald-600" />}
-            </IconBtn>
-            <IconBtn disabled={busy} onClick={() => onReject?.(r)} title={t('actions.reject')}>
-              <IconX className="h-4 w-4 text-red-600" />
-            </IconBtn>
-          </>
-        )}
-        {canTerminate(r.status) && (
+        {!admin && canTerminate(r.status) && (
           <IconBtn disabled={busy} onClick={() => onTerminate?.(r)} title={t('actions.terminate')}>
             {busy ? <Spinner className="h-4 w-4" /> : <IconTrash className="h-4 w-4 text-red-600" />}
           </IconBtn>

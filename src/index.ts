@@ -713,6 +713,21 @@ app.get('/api/monitoring/:metric', async (c) => {
   return c.json({ error: 'unknown_metric' }, 404);
 });
 
+// Admin proposes a change to the request: posts a message (comment) + notifies the user.
+app.post('/api/admin/requests/:id/suggest', apiAdmin, async (c) => {
+  const admin = c.get('user');
+  const id = Number(c.req.param('id'));
+  const r = await getRequest(c.env, id);
+  if (!r) return c.json({ error: 'not_found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const note = String(body.note ?? '').trim().slice(0, 2000);
+  if (!note) return c.json({ error: 'empty' }, 400);
+  await addComment(c.env, id, admin.email, `[Proposition de modification] ${note}`);
+  await addNotification(c.env, r.user_email, 'suggestion', `/requests/${id}`);
+  await audit(c.env, admin.email, 'request.suggest', `req:${id}`);
+  return c.json({ ok: true });
+});
+
 // ---- Static assets (React SPA) -----------------------------------------
 app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
