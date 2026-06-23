@@ -172,6 +172,39 @@ function generateWindowsPassword(length = 18): string {
   return chars.join('');
 }
 
+// In-VM hardening (defense-in-depth). The strong, un-bypassable layer is the
+// Security Group egress allowlist (scripts/aws-harden-sg.mjs) — a sudo/admin user
+// can undo in-VM rules but not the network SG.
+function linuxHardeningBody(): string {
+  return [
+    '# --- GIT VM Portal hardening ---',
+    '# Filtered DNS (Cloudflare for Families: blocks adult + malware content)',
+    'mkdir -p /etc/systemd/resolved.conf.d 2>/dev/null || true',
+    "printf '[Resolve]\\nDNS=1.1.1.3 1.0.0.3\\nDomains=~.\\n' >/etc/systemd/resolved.conf.d/gitvm.conf 2>/dev/null || true",
+    'systemctl restart systemd-resolved 2>/dev/null || true',
+    'rm -f /etc/resolv.conf 2>/dev/null || true',
+    "printf 'nameserver 1.1.1.3\\nnameserver 1.0.0.3\\n' >/etc/resolv.conf 2>/dev/null || true",
+    'chattr +i /etc/resolv.conf 2>/dev/null || true',
+    '# Block P2P / torrent ports (network SG enforces the default-deny egress)',
+    'if command -v iptables >/dev/null 2>&1; then',
+    '  iptables -A OUTPUT -p tcp -m multiport --dports 6881:6889,6969,51413 -j REJECT 2>/dev/null || true',
+    '  iptables -A OUTPUT -p udp -m multiport --dports 6881:6889,6969,51413,1337 -j REJECT 2>/dev/null || true',
+    'fi',
+    '# Lock the hostname (prevent rename)',
+    'chattr -i /etc/hostname 2>/dev/null || true',
+    'hostname >/etc/hostname 2>/dev/null || true',
+    'chattr +i /etc/hostname 2>/dev/null || true',
+    '# --- end hardening ---',
+  ].join('\n');
+}
+function windowsHardeningLines(): string[] {
+  return [
+    "try { $a=(Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object -First 1).Name; Set-DnsClientServerAddress -InterfaceAlias $a -ServerAddresses ('1.1.1.3','1.0.0.3') } catch {}",
+    "try { New-NetFirewallRule -DisplayName 'gitvm-block-torrent-tcp' -Direction Outbound -Action Block -Protocol TCP -RemotePort 6881-6889,6969,51413 } catch {}",
+    "try { New-NetFirewallRule -DisplayName 'gitvm-block-torrent-udp' -Direction Outbound -Action Block -Protocol UDP -RemotePort 6881-6889,6969,51413,1337 } catch {}",
+  ];
+}
+
 // Create the SSH key + EC2 instance for a request. Shared by approve + retry.
 // Windows VMs additionally get an Administrator password set via UserData and
 // stored encrypted (no SSH; the user connects over RDP).
@@ -183,12 +216,14 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
 
   const isWindows = os.connect === 'rdp';
   const isRestore = !!req.restore_snapshot_id;
+  const hardeningOn = env.HARDENING !== 'false';
   let userData: string | undefined;
   let encPassword: string | null = null;
   if (isWindows) {
     const password = generateWindowsPassword();
     // EC2Launch v2 runs this on first boot; single-quoted so the password is literal.
     const lines = [`net user Administrator '${password}'`];
+    if (hardeningOn && !isRestore) lines.push(...windowsHardeningLines());
     if (!isRestore) {
       const win = buildWindowsCourseInstall(req.course);
       if (win) {
@@ -200,13 +235,15 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
     userData = `<powershell>\n${lines.join('\n')}\n</powershell>\n<persist>false</persist>`;
     encPassword = await encryptSecret(env.SESSION_SECRET, password);
   } else if (!isRestore) {
-    // Linux: preinstall the chosen course's tools via cloud-init (if any). The
-    // script calls back when done so the UI can show "tools ready".
-    const base = buildCourseUserData(req.course);
+    // Linux: hardening (DNS filter + P2P block + hostname lock) + optional course tools.
+    const hard = hardeningOn ? linuxHardeningBody() : '';
+    const base = buildCourseUserData(req.course); // full #!/bin/bash script, or ''
     if (base) {
       const token = await courseCallbackToken(env.SESSION_SECRET, req.id);
       const cb = `curl -fsS -X POST "${env.APP_URL}/api/internal/course-done?req=${req.id}&token=${encodeURIComponent(token)}" || true`;
-      userData = `${base}${cb}\n`;
+      userData = `${base.replace(/^(#![^\n]*\n)/, `$1${hard ? hard + '\n' : ''}`)}${cb}\n`;
+    } else if (hard) {
+      userData = `#!/bin/bash\nset +e\n${hard}\n`;
     }
   }
 

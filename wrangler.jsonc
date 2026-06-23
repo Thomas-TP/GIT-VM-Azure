@@ -43,6 +43,7 @@
     "SCHEDULED_STOP": "true",
     "IDLE_STOP": "true",
     "IDLE_STOP_HOURS": "3",
+    "HARDENING": "true",
     "SENTRY_DSN": "",
     "EMAILJS_PUBLIC_KEY": "KlKcUV9eCQouP22hT",
     "EMAILJS_SERVICE_ID": "service_aeuc86a",

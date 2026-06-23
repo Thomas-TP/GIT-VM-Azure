@@ -20,6 +20,7 @@ export interface Env {
   SCHEDULED_STOP: string; // "true" | "false" — stop running VMs at 19:00 UTC
   IDLE_STOP?: string; // "true" | "false" — auto-stop VMs idle (low CPU) for IDLE_STOP_HOURS
   IDLE_STOP_HOURS?: string; // hours of idle before auto-stop (default 3)
+  HARDENING?: string; // "true" | "false" — in-VM hardening (DNS filter, P2P block, hostname lock)
   SENTRY_DSN?: string; // optional error reporting
   EMAILJS_PUBLIC_KEY: string;
   EMAILJS_SERVICE_ID: string;
