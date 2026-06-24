@@ -296,7 +296,7 @@ function NewVmForm({ catalog, nav, qc, toast }: { catalog: PresetCatalog; nav: R
   const monthlyOf = (vm: VmCfg) => {
     const p = catalog.perf.find((x) => x.id === vm.perf);
     const s = catalog.storage.find((x) => x.id === vm.storage);
-    return p && s ? p.hourlyUsd * 730 + s.sizeGb * catalog.storageUsdGbMonth : 0;
+    return p && s ? p.hourlyUsd * 730 + s.sizeGb * (s.usdGbMonth ?? catalog.storageUsdGbMonth) : 0;
   };
   const totalMonthly = useMemo(() => vms.reduce((a, v) => a + monthlyOf(v), 0), [vms]);
   const allValid = vms.every(validVm);

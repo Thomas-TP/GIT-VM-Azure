@@ -21,6 +21,9 @@ export interface StoragePreset {
   id: string;
   label: string;
   sizeGb: number;
+  volumeType?: 'gp3' | 'gp2' | 'io1' | 'io2';
+  iops?: number;
+  usdGbMonth?: number;
   description?: string;
   recommended?: boolean;
   hidden?: boolean;

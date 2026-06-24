@@ -18,6 +18,12 @@ export interface StoragePreset {
   id: string;
   label: string;
   sizeGb: number;
+  /** EBS SSD volume type. Default gp3. */
+  volumeType?: 'gp3' | 'gp2' | 'io1' | 'io2';
+  /** Provisioned IOPS (io1/io2 only). */
+  iops?: number;
+  /** $/Go-mois for this type (overrides the global gp3 rate in cost estimates). */
+  usdGbMonth?: number;
   description?: string;
   recommended?: boolean;
   hidden?: boolean;
@@ -40,31 +46,50 @@ export interface OsPreset {
   hidden?: boolean;
 }
 
-// Free-Tier only: the AWS account is restricted to free-tier-eligible instance
-// types (verified via scripts/aws-freetier.mjs). x86_64 only (our AMIs are x86_64,
-// so the t4g/ARM free types are excluded). Legacy ids are kept hidden and remapped
-// to a free-tier type so existing requests still provision.
+// Catalogue d'instances x86_64 (nos AMIs sont x86_64), large mais raisonnable.
+// Chaque entrée visible a un instanceType DISTINCT (pas de doublon). Prix on-demand
+// approximatifs eu-central-2 (Zurich), USD/h. ⚠️ Compte plafonné à 50 $ : les gros
+// types coûtent vite — l'estimation de coût + l'arrêt sur inactivité sont là pour ça.
+// Les ids legacy (eco/std/perf/pro/max) restent masqués pour les demandes existantes.
 export const PERF: Record<string, PerfPreset> = {
-  micro: { id: 'micro', label: 'Micro', instanceType: 't3.micro', vcpu: 2, ramGb: 1, hourlyUsd: 0.0136, description: 'Free Tier — tests légers, scripts, apprentissage.' },
-  small: { id: 'small', label: 'Small', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, description: 'Free Tier — petits services, dev, la plupart des cours.', recommended: true },
-  flex: { id: 'flex', label: 'Flex', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, description: 'Free Tier — 4 Go, plus confortable (Windows, conteneurs).' },
-  // Legacy (hidden) — remappés vers un type Free Tier pour les demandes existantes.
+  micro: { id: 'micro', label: 'Micro', instanceType: 't3.micro', vcpu: 2, ramGb: 1, hourlyUsd: 0.0136, description: 'Tests légers, scripts, apprentissage.' },
+  small: { id: 'small', label: 'Small', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, description: 'Petits services, dev, la plupart des cours.', recommended: true },
+  medium: { id: 'medium', label: 'Medium', instanceType: 't3.medium', vcpu: 2, ramGb: 4, hourlyUsd: 0.0544, description: 'Polyvalent — 4 Go, conteneurs, Windows léger.' },
+  large: { id: 'large', label: 'Large', instanceType: 't3.large', vcpu: 2, ramGb: 8, hourlyUsd: 0.1088, description: 'Burstable 8 Go — bureaux, applis plus lourdes.' },
+  xlarge: { id: 'xlarge', label: 'XLarge', instanceType: 't3.xlarge', vcpu: 4, ramGb: 16, hourlyUsd: 0.2176, description: 'Burstable 4 vCPU / 16 Go.' },
+  xxlarge: { id: 'xxlarge', label: '2XLarge', instanceType: 't3.2xlarge', vcpu: 8, ramGb: 32, hourlyUsd: 0.4352, description: 'Burstable 8 vCPU / 32 Go.' },
+  flex: { id: 'flex', label: 'Flex (compute éco)', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0857, description: 'Compute économique, bon rapport prix/perf.' },
+  computeXl: { id: 'computeXl', label: 'Compute XL', instanceType: 'c7i.xlarge', vcpu: 4, ramGb: 8, hourlyUsd: 0.2042, description: 'Compute optimisé 4 vCPU / 8 Go (CPU intensif).' },
+  compute2xl: { id: 'compute2xl', label: 'Compute 2XL', instanceType: 'c7i.2xlarge', vcpu: 8, ramGb: 16, hourlyUsd: 0.4084, description: 'Compute optimisé 8 vCPU / 16 Go.' },
+  balancedL: { id: 'balancedL', label: 'Équilibré L', instanceType: 'm7i.large', vcpu: 2, ramGb: 8, hourlyUsd: 0.1232, description: 'Usage général dernière génération, 8 Go.' },
+  balancedXl: { id: 'balancedXl', label: 'Équilibré XL', instanceType: 'm7i.xlarge', vcpu: 4, ramGb: 16, hourlyUsd: 0.2464, description: 'Usage général 4 vCPU / 16 Go.' },
+  memoryL: { id: 'memoryL', label: 'Mémoire L', instanceType: 'r7i.large', vcpu: 2, ramGb: 16, hourlyUsd: 0.1596, description: 'Optimisé mémoire 16 Go (bases de données, cache).' },
+  memoryXl: { id: 'memoryXl', label: 'Mémoire XL', instanceType: 'r7i.xlarge', vcpu: 4, ramGb: 32, hourlyUsd: 0.3192, description: 'Optimisé mémoire 4 vCPU / 32 Go.' },
+  // Legacy (masqués) — remappés pour les demandes existantes.
   eco: { id: 'eco', label: 'Eco', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, hidden: true },
   std: { id: 'std', label: 'Standard', instanceType: 't3.small', vcpu: 2, ramGb: 2, hourlyUsd: 0.0272, hidden: true },
-  perf: { id: 'perf', label: 'Performance', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, hidden: true },
-  pro: { id: 'pro', label: 'Pro', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, hidden: true },
-  max: { id: 'max', label: 'Max', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0907, hidden: true },
+  perf: { id: 'perf', label: 'Performance', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0857, hidden: true },
+  pro: { id: 'pro', label: 'Pro', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0857, hidden: true },
+  max: { id: 'max', label: 'Max', instanceType: 'c7i-flex.large', vcpu: 2, ramGb: 4, hourlyUsd: 0.0857, hidden: true },
 };
 
-// Free-Tier EBS = 30 Go. On reste ≤ 30 Go ; les tailles supérieures (payantes) sont
-// conservées masquées pour résoudre les demandes existantes.
+// Tous les types de SSD EBS proposés : gp3 (usage général, défaut), gp2 (gén.
+// précédente) et io2 (IOPS provisionnées, haute performance). HDD (st1/sc1) exclus.
+// ⚠️ EBS est facturé même VM arrêtée — les gros disques pèsent sur le budget 50 $.
 export const STORAGE: Record<string, StoragePreset> = {
-  s20: { id: 's20', label: '20 Go SSD', sizeGb: 20, description: 'Free Tier — suffisant pour un OS Linux + outils.' },
-  s30: { id: 's30', label: '30 Go SSD', sizeGb: 30, description: 'Free Tier — maximum gratuit, requis pour Windows.', recommended: true },
-  s50: { id: 's50', label: '50 Go SSD', sizeGb: 50, hidden: true },
-  s100: { id: 's100', label: '100 Go SSD', sizeGb: 100, hidden: true },
-  s250: { id: 's250', label: '250 Go SSD', sizeGb: 250, hidden: true },
-  s500: { id: 's500', label: '500 Go SSD', sizeGb: 500, hidden: true },
+  s8: { id: 's8', label: '8 Go · gp3 SSD', sizeGb: 8, volumeType: 'gp3', usdGbMonth: 0.0952, description: 'Minimal — Linux nu.' },
+  s16: { id: 's16', label: '16 Go · gp3 SSD', sizeGb: 16, volumeType: 'gp3', usdGbMonth: 0.0952, description: 'Léger — OS + quelques outils.' },
+  s20: { id: 's20', label: '20 Go · gp3 SSD', sizeGb: 20, volumeType: 'gp3', usdGbMonth: 0.0952, description: 'OS Linux + outils.' },
+  s30: { id: 's30', label: '30 Go · gp3 SSD', sizeGb: 30, volumeType: 'gp3', usdGbMonth: 0.0952, description: 'Confort, requis pour Windows.', recommended: true },
+  s50: { id: 's50', label: '50 Go · gp3 SSD', sizeGb: 50, volumeType: 'gp3', usdGbMonth: 0.0952 },
+  s100: { id: 's100', label: '100 Go · gp3 SSD', sizeGb: 100, volumeType: 'gp3', usdGbMonth: 0.0952 },
+  s200: { id: 's200', label: '200 Go · gp3 SSD', sizeGb: 200, volumeType: 'gp3', usdGbMonth: 0.0952 },
+  s500: { id: 's500', label: '500 Go · gp3 SSD', sizeGb: 500, volumeType: 'gp3', usdGbMonth: 0.0952 },
+  gp2_30: { id: 'gp2_30', label: '30 Go · gp2 SSD', sizeGb: 30, volumeType: 'gp2', usdGbMonth: 0.119, description: 'SSD usage général (génération précédente).' },
+  gp2_100: { id: 'gp2_100', label: '100 Go · gp2 SSD', sizeGb: 100, volumeType: 'gp2', usdGbMonth: 0.119, description: 'gp2 — IOPS proportionnelles à la taille.' },
+  io2_50: { id: 'io2_50', label: '50 Go · io2 SSD (haute perf)', sizeGb: 50, volumeType: 'io2', iops: 3000, usdGbMonth: 0.149, description: 'IOPS provisionnées (3 000) — bases de données exigeantes.' },
+  io2_100: { id: 'io2_100', label: '100 Go · io2 SSD (haute perf)', sizeGb: 100, volumeType: 'io2', iops: 5000, usdGbMonth: 0.149, description: 'IOPS provisionnées (5 000) — charges I/O intensives.' },
+  s250: { id: 's250', label: '250 Go · gp3 SSD', sizeGb: 250, volumeType: 'gp3', usdGbMonth: 0.0952, hidden: true },
 };
 
 // All AMIs are concrete eu-central-2 IDs verified via DescribeImages
@@ -260,5 +285,5 @@ export function estimateMonthlyUsd(perfId: string, storageId: string): number {
   const p = PERF[perfId];
   const s = STORAGE[storageId];
   if (!p || !s) return 0;
-  return p.hourlyUsd * HOURS_PER_MONTH + s.sizeGb * STORAGE_USD_GB_MONTH;
+  return p.hourlyUsd * HOURS_PER_MONTH + s.sizeGb * (s.usdGbMonth ?? STORAGE_USD_GB_MONTH);
 }
