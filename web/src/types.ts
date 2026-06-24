@@ -87,6 +87,17 @@ export interface Metrics {
   failed: number;
   avgProvisionSeconds: number;
 }
+export interface CostData {
+  real: { daily: { date: string; amount: number }[]; total: number; byService: { service: string; amount: number }[] } | null;
+  estimated: {
+    total: number; vmHours: number; active: number; terminated: number; count: number;
+    perVm: { id: number; name: string | null; owner: string; os: string | null; hours: number; cost: number; active: boolean }[];
+    byOs: { os: string; cost: number }[];
+    byUser: { user: string; cost: number }[];
+  };
+  budget: number;
+  forecast: number | null;
+}
 export interface AuditEntry {
   id: number;
   actor: string;

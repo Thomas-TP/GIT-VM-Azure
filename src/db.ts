@@ -546,6 +546,21 @@ export async function listActiveVms(env: Env): Promise<ActiveVm[]> {
   return res.results ?? [];
 }
 
+// All VMs (with a real instance) for cost computation: launch → terminate window.
+export interface VmCostRow {
+  id: number; name: string | null; user_email: string; os: string | null;
+  preset: string; storage: string | null; status: string; expired_at: string | null;
+  launched_at: string | null; terminated_at: string | null;
+}
+export async function listVmCostRows(env: Env): Promise<VmCostRow[]> {
+  const res = await env.DB.prepare(
+    `SELECT r.id, r.name, r.user_email, r.os, r.preset, r.storage, r.status, r.expired_at,
+            v.created_at AS launched_at, v.terminated_at AS terminated_at
+       FROM vm_requests r JOIN vms v ON v.request_id = r.id`
+  ).all<VmCostRow>();
+  return res.results ?? [];
+}
+
 // Running active VMs (for the idle auto-stop check).
 export interface IdleVm { id: number; user_email: string; aws_instance_id: string | null; }
 export async function listRunningVmsForIdle(env: Env): Promise<IdleVm[]> {

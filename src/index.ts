@@ -43,6 +43,7 @@ import {
   getPasswordForRequest,
   listActiveVms,
   listRunningVmsForIdle,
+  listVmCostRows,
   listScheduledVms,
   setSchedule,
   setSchedulePaused,
@@ -96,6 +97,7 @@ import {
   deleteSnapshot,
   registerImageFromSnapshot,
   maxCpuOverWindow,
+  costExplorer,
 } from './aws';
 import {
   notifyAdminsNewRequest,
@@ -896,6 +898,48 @@ app.get('/api/admin/stats', apiAdmin, async (c) => {
 
 app.get('/api/admin/metrics', apiAdmin, async (c) => {
   return c.json({ metrics: await metrics(c.env) });
+});
+
+// Cost dashboard: real AWS spend (Cost Explorer, this month) + per-VM estimate (D1).
+app.get('/api/admin/costs', apiAdmin, async (c) => {
+  const now = new Date();
+  const start = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  const end = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
+  let real: Awaited<ReturnType<typeof costExplorer>> | null = null;
+  try { real = await costExplorer(c.env, start, end); } catch { /* ce:GetCostAndUsage missing -> estimate only */ }
+
+  const rows = await listVmCostRows(c.env);
+  const nowMs = Date.now();
+  const parse = (s: string | null) => (s ? Date.parse(s.replace(' ', 'T') + 'Z') : NaN);
+  let total = 0, vmHours = 0, active = 0, terminated = 0;
+  const byOs: Record<string, number> = {}, byUser: Record<string, number> = {};
+  const perVm = rows.map((r) => {
+    const launch = parse(r.launched_at);
+    const endT = r.terminated_at ? parse(r.terminated_at) : nowMs;
+    const hours = isNaN(launch) ? 0 : Math.max(0, (endT - launch) / 3_600_000);
+    const perf = PERF[r.preset];
+    const st = r.storage ? STORAGE[r.storage] : undefined;
+    const compute = perf ? hours * perf.hourlyUsd : 0;
+    const storage = st ? st.sizeGb * (st.usdGbMonth ?? STORAGE_USD_GB_MONTH) * (hours / 730) : 0;
+    const cost = compute + storage;
+    total += cost; vmHours += hours;
+    const live = !(r.terminated_at || r.expired_at);
+    if (live) active++; else terminated++;
+    byOs[r.os ?? '—'] = (byOs[r.os ?? '—'] ?? 0) + cost;
+    byUser[r.user_email] = (byUser[r.user_email] ?? 0) + cost;
+    return { id: r.id, name: r.name, owner: r.user_email, os: r.os, hours, cost, active: live };
+  });
+  perVm.sort((a, b) => b.cost - a.cost);
+  const estimated = {
+    total, vmHours, active, terminated, count: rows.length,
+    perVm: perVm.slice(0, 12),
+    byOs: Object.entries(byOs).map(([os, cost]) => ({ os, cost })).sort((a, b) => b.cost - a.cost),
+    byUser: Object.entries(byUser).map(([user, cost]) => ({ user, cost })).sort((a, b) => b.cost - a.cost).slice(0, 8),
+  };
+  const day = now.getUTCDate();
+  const daysInMonth = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 0).getUTCDate();
+  const forecast = real ? (real.total / day) * daysInMonth : null;
+  return c.json({ real, estimated, budget: 50, forecast });
 });
 
 app.get('/api/admin/users', apiAdmin, async (c) => {

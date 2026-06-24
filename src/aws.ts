@@ -265,6 +265,41 @@ export async function maxCpuOverWindow(env: Env, instanceId: string, minutes: nu
   return { max: Math.max(...vals), datapoints: vals.length };
 }
 
+// Real AWS spend via Cost Explorer (daily, grouped by service) for [start, end).
+// Dates are YYYY-MM-DD ; End is exclusive. Throws if ce:GetCostAndUsage is denied.
+export async function costExplorer(env: Env, start: string, end: string): Promise<{ daily: { date: string; amount: number }[]; total: number; byService: { service: string; amount: number }[] }> {
+  const ce = new AwsClient({ accessKeyId: env.AWS_ACCESS_KEY_ID, secretAccessKey: env.AWS_SECRET_ACCESS_KEY, region: 'us-east-1', service: 'ce' });
+  const body = JSON.stringify({
+    TimePeriod: { Start: start, End: end },
+    Granularity: 'DAILY',
+    Metrics: ['UnblendedCost'],
+    GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
+  });
+  const res = await ce.fetch('https://ce.us-east-1.amazonaws.com/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Amz-Target': 'AWSInsightsIndexService.GetCostAndUsage' },
+    body,
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`CostExplorer: ${res.status} ${text.slice(0, 200)}`);
+  const j = JSON.parse(text) as any;
+  const daily: { date: string; amount: number }[] = [];
+  const svc: Record<string, number> = {};
+  for (const r of j.ResultsByTime ?? []) {
+    let day = 0;
+    for (const g of r.Groups ?? []) {
+      const amt = parseFloat(g.Metrics?.UnblendedCost?.Amount ?? '0') || 0;
+      day += amt;
+      const k = (g.Keys?.[0] ?? 'Autre').replace(/^Amazon |^AWS /, '');
+      svc[k] = (svc[k] ?? 0) + amt;
+    }
+    daily.push({ date: r.TimePeriod?.Start ?? '', amount: day });
+  }
+  const total = daily.reduce((a, d) => a + d.amount, 0);
+  const byService = Object.entries(svc).map(([service, amount]) => ({ service, amount })).filter((s) => s.amount > 0.0001).sort((a, b) => b.amount - a.amount);
+  return { daily, total, byService };
+}
+
 // List instances managed by the portal -> { instanceId: state } (for reconciliation).
 export async function listManagedInstances(env: Env): Promise<Record<string, string>> {
   const xml = await ec2(env, {
