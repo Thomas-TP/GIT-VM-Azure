@@ -275,6 +275,8 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
     sizeGb,
     userData,
     nameTag: req.name ? `${req.name}.${req.user_email.split('@')[0]}` : null,
+    volumeType: storage.volumeType,
+    iops: storage.iops,
   });
   await createVm(env, req.id, instanceId, kp.keyName, encKey, os.sshUser, os.connect, encPassword);
   return instanceId;

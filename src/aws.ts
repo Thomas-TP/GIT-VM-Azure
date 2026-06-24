@@ -74,6 +74,10 @@ export interface LaunchParams {
   userData?: string;
   /** User-chosen VM name -> EC2 Name tag (falls back to vm-portal-req-<id>). */
   nameTag?: string | null;
+  /** EBS SSD volume type for the root disk (default gp3). */
+  volumeType?: string;
+  /** Provisioned IOPS (io1/io2 only). */
+  iops?: number;
 }
 
 // The root volume device name depends on the AMI (Ubuntu /dev/sda1, Debian /dev/xvda…).
@@ -101,7 +105,7 @@ export async function launchInstance(env: Env, p: LaunchParams): Promise<LaunchR
     'NetworkInterface.1.SecurityGroupId.1': env.AWS_SECURITY_GROUP_ID,
     'BlockDeviceMapping.1.DeviceName': rootDev,
     'BlockDeviceMapping.1.Ebs.VolumeSize': String(p.sizeGb),
-    'BlockDeviceMapping.1.Ebs.VolumeType': 'gp3',
+    'BlockDeviceMapping.1.Ebs.VolumeType': p.volumeType || 'gp3',
     'BlockDeviceMapping.1.Ebs.DeleteOnTermination': 'true',
     'TagSpecification.1.ResourceType': 'instance',
     'TagSpecification.1.Tag.1.Key': 'Name',
@@ -111,6 +115,11 @@ export async function launchInstance(env: Env, p: LaunchParams): Promise<LaunchR
     'TagSpecification.1.Tag.3.Key': 'request-id',
     'TagSpecification.1.Tag.3.Value': String(p.requestId),
   };
+
+  // Provisioned IOPS SSD (io1/io2) require an Iops value.
+  if (p.iops && (p.volumeType === 'io1' || p.volumeType === 'io2')) {
+    params['BlockDeviceMapping.1.Ebs.Iops'] = String(p.iops);
+  }
 
   // UserData must be base64-encoded. Used for Windows to set the admin password.
   if (p.userData) {
