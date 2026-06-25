@@ -9,6 +9,9 @@ import type { Env } from './types';
 
 const ARM = 'https://management.azure.com';
 const API_COMPUTE = '2024-07-01';
+// The disks/snapshots resource provider is versioned separately from VMs and does
+// NOT accept 2024-07-01 (max 2024-03-02). Use a dedicated version for them.
+const API_DISK = '2024-03-02';
 const API_NETWORK = '2023-11-01';
 const API_METRICS = '2023-10-01';
 const API_COST = '2023-11-01';
@@ -357,7 +360,7 @@ export async function createSnapshot(env: Env, diskId: string, description: stri
   const name = `gitvm-snap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   await arm(env, `${rgBase(env)}/providers/Microsoft.Compute/snapshots/${name}`, {
     method: 'PUT',
-    api: API_COMPUTE,
+    api: API_DISK,
     body: {
       location: env.AZURE_LOCATION,
       properties: { creationData: { createOption: 'Copy', sourceResourceId: diskId } },
@@ -369,14 +372,14 @@ export async function createSnapshot(env: Env, diskId: string, description: stri
 
 // state: pending | completed | error ; plus diskSizeGB when available.
 export async function describeSnapshot(env: Env, name: string): Promise<{ state: string; sizeGb?: number }> {
-  const s = await arm(env, `${rgBase(env)}/providers/Microsoft.Compute/snapshots/${name}`, { api: API_COMPUTE });
+  const s = await arm(env, `${rgBase(env)}/providers/Microsoft.Compute/snapshots/${name}`, { api: API_DISK });
   const prov = s.json?.properties?.provisioningState;
   const state = prov === 'Succeeded' ? 'completed' : prov === 'Failed' ? 'error' : 'pending';
   return { state, sizeGb: s.json?.properties?.diskSizeGB };
 }
 
 export async function deleteSnapshot(env: Env, name: string): Promise<void> {
-  await arm(env, `${rgBase(env)}/providers/Microsoft.Compute/snapshots/${name}`, { method: 'DELETE', api: API_COMPUTE }).catch(() => {});
+  await arm(env, `${rgBase(env)}/providers/Microsoft.Compute/snapshots/${name}`, { method: 'DELETE', api: API_DISK }).catch(() => {});
 }
 
 // "Register image from snapshot" -> on Azure: create a managed disk copied from
@@ -386,14 +389,14 @@ export async function registerImageFromSnapshot(env: Env, name: string, snapshot
   const diskName = `gitvm-restore-${name}-${Math.random().toString(36).slice(2, 6)}`.slice(0, 80);
   const r = await arm(env, `${rgBase(env)}/providers/Microsoft.Compute/disks/${diskName}`, {
     method: 'PUT',
-    api: API_COMPUTE,
+    api: API_DISK,
     body: {
       location: env.AZURE_LOCATION,
       properties: { creationData: { createOption: 'Copy', sourceResourceId: snapId } },
       tags: { 'managed-by': 'git-vm-portal' },
     },
   });
-  await waitProvisioned(env, `${rgBase(env)}/providers/Microsoft.Compute/disks/${diskName}`, API_COMPUTE);
+  await waitProvisioned(env, `${rgBase(env)}/providers/Microsoft.Compute/disks/${diskName}`, API_DISK);
   return r.json?.id ?? `${rgBase(env)}/providers/Microsoft.Compute/disks/${diskName}`;
 }
 
@@ -458,15 +461,22 @@ export async function costExplorer(
 }
 
 // ---- Reconciliation -----------------------------------------------------
-// All portal-managed VMs in the resource group -> { vmName: state } (one call,
-// instanceView expanded). Filtered by the managed-by tag.
+// All portal-managed VMs in the resource group -> { vmName: state }, filtered by
+// the managed-by tag. NOTE: `$expand=instanceView` is NOT supported at resource-
+// group scope (Azure 400s), so the power state is read per VM via its instanceView.
+// With the portal's low VM count (public-IP quota caps concurrency) this is cheap.
 export async function listManagedInstances(env: Env): Promise<Record<string, string>> {
-  const r = await arm(env, `${rgBase(env)}/providers/Microsoft.Compute/virtualMachines`, { api: API_COMPUTE, query: { $expand: 'instanceView' } });
+  const r = await arm(env, `${rgBase(env)}/providers/Microsoft.Compute/virtualMachines`, { api: API_COMPUTE });
   const out: Record<string, string> = {};
   for (const vm of r.json?.value ?? []) {
-    if (vm.tags?.['managed-by'] !== 'git-vm-portal') continue;
-    const statuses: any[] = vm.properties?.instanceView?.statuses ?? [];
-    out[vm.name] = mapPower(statuses.find((s) => String(s.code).startsWith('PowerState/'))?.code);
+    if (vm.tags?.['managed-by'] !== 'git-vm-portal' || !vm.name) continue;
+    try {
+      const iv = await arm(env, `${rgBase(env)}/providers/Microsoft.Compute/virtualMachines/${vm.name}/instanceView`, { api: API_COMPUTE });
+      const statuses: any[] = iv.json?.statuses ?? [];
+      out[vm.name] = mapPower(statuses.find((s) => String(s.code).startsWith('PowerState/'))?.code);
+    } catch {
+      out[vm.name] = 'running'; // exists but power unreadable this tick — assume present (avoid false drift)
+    }
   }
   return out;
 }

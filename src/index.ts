@@ -1219,11 +1219,14 @@ app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 // Reconcile DB against AWS: promote provisioning->active, sync running/stopped
 // state, and detect drift (instances terminated outside the portal).
 async function reconcile(env: Env): Promise<void> {
-  let managed: Record<string, string> = {};
+  let managed: Record<string, string>;
   try {
     managed = await listManagedInstances(env);
-  } catch {
-    /* AWS unreachable this tick — skip */
+  } catch (e: any) {
+    // Azure unreachable this tick — DON'T proceed with an empty map, that would
+    // wrongly flag every VM as drift and mark them terminated. Skip the tick.
+    await audit(env, 'system', 'vm.reconcile.list_error', '', e.message);
+    return;
   }
   const rows = await listActiveVms(env);
   for (const row of rows) {
