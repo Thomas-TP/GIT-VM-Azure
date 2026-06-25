@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "git-vm-portal",
+  "name": "git-vm-portal-azure",
   "main": "src/index.ts",
   "compatibility_date": "2025-06-01",
   "observability": { "enabled": true },
@@ -18,41 +18,48 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "git_vm_portal",
-      "database_id": "86b47d2d-62e8-4162-a3cc-f7a8a02068c6"
+      "database_name": "git_vm_portal_azure",
+      "database_id": "984d6e8a-95f4-42d9-a685-158b044055d6"
     }
   ],
 
-  // Non-secret config. Secrets (AWS keys, Entra client secret, session secret)
-  // are set with `wrangler secret put` — never committed here.
+  // Non-secret config. Secrets (Azure SP secret, Entra client secret, session
+  // secret, EmailJS private key) are set with `wrangler secret put` — never here.
   "vars": {
     "ALLOWED_EMAIL_DOMAINS": "satom.ch,git.swiss",
     "ADMIN_EMAILS": "thomas.prudhomme@satom.ch,thomas.prudhomme@git.swiss",
+
+    // Login SSO (app Entra « GIT-VM-Azure »)
     "ENTRA_TENANT_ID": "33a7a298-4cf4-4f62-914a-d32bba54de5a",
-    "ENTRA_CLIENT_ID": "0bfcdbd6-a60e-49df-a5b1-80ce3bcb7126",
+    "ENTRA_CLIENT_ID": "09d86c63-25eb-4b64-90f1-9d1327e314a4",
 
-    "AWS_REGION": "eu-central-2",
-    "AWS_AMI_ID": "ami-0fd7f34c2a7d8427b",
-    "AWS_SUBNET_ID": "subnet-0247cdf408e6fb4d1",
-    "AWS_SECURITY_GROUP_ID": "sg-0f842f10ca3c7b2d1",
-    "AWS_KEY_NAME": "",
+    // Compute Azure (service principal « Claude », Owner sur l'abonnement)
+    "AZURE_TENANT_ID": "33a7a298-4cf4-4f62-914a-d32bba54de5a",
+    "AZURE_CLIENT_ID": "50f50b56-3510-467a-8e05-61081972daf6",
+    "AZURE_SUBSCRIPTION_ID": "2ffd87ba-1361-4458-9e40-6a71af0615d7",
+    "AZURE_LOCATION": "switzerlandnorth",
+    "AZURE_RESOURCE_GROUP": "git-vm-portal",
+    // Resource ids complets — remplis par scripts/azure-setup.mjs (voir docs/DEPLOYMENT.md).
+    "AZURE_SUBNET_ID": "/subscriptions/2ffd87ba-1361-4458-9e40-6a71af0615d7/resourceGroups/git-vm-portal/providers/Microsoft.Network/virtualNetworks/git-vm-portal-vnet/subnets/default",
+    "AZURE_NSG_ID": "/subscriptions/2ffd87ba-1361-4458-9e40-6a71af0615d7/resourceGroups/git-vm-portal/providers/Microsoft.Network/networkSecurityGroups/git-vm-portal-nsg",
 
-    "APP_URL": "https://git-vm-portal.thomas-prudhomme.workers.dev",
-    "GRAFANA_URL": "https://thomastp.grafana.net/d/gitvm-portal/git-vm-portal",
+    "APP_URL": "https://git-vm-portal-azure.thomas-prudhomme.workers.dev",
+    "GRAFANA_URL": "",
     "MAIL_ENABLED": "true",
     "SCHEDULED_STOP": "true",
     "IDLE_STOP": "true",
     "IDLE_STOP_HOURS": "3",
     "HARDENING": "true",
     "SENTRY_DSN": "",
-    "EMAILJS_PUBLIC_KEY": "KlKcUV9eCQouP22hT",
+    "EMAILJS_PUBLIC_KEY": "KIKcUV9eCQouP22hT",
     "EMAILJS_SERVICE_ID": "service_aeuc86a",
     "EMAILJS_TEMPLATE_ID": "template_za3761l"
-  },
-
-  "triggers": {
-    // every 2 min: reconcile AWS state (provisioning->active, drift detection)
-    // daily 19:00 UTC: scheduled stop of running VMs (cost guardrail)
-    "crons": ["*/2 * * * *", "0 19 * * *"]
   }
+
+  // ⚠️ Pas de "triggers.crons" : le compte Cloudflare Free est plafonné à 5 cron
+  // triggers et ils sont déjà tous pris par les autres variantes (AWS/Huawei/
+  // OpenStack). Le réconciliateur est piloté par un déclencheur externe qui POST
+  // sur /api/internal/cron (voir .github/workflows/cron.yml + secret CRON_SECRET).
+  // Pour revenir au cron natif : passer le compte en Workers Paid puis remettre
+  //   "triggers": { "crons": ["*/2 * * * *", "0 19 * * *"] }
 }

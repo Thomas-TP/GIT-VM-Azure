@@ -8,11 +8,14 @@ export interface Env {
   ENTRA_TENANT_ID: string;
   ENTRA_CLIENT_ID: string;
 
-  AWS_REGION: string;
-  AWS_AMI_ID: string;
-  AWS_SUBNET_ID: string;
-  AWS_SECURITY_GROUP_ID: string;
-  AWS_KEY_NAME: string;
+  // Azure (Resource Manager) — compute layer
+  AZURE_TENANT_ID: string;
+  AZURE_CLIENT_ID: string;
+  AZURE_SUBSCRIPTION_ID: string;
+  AZURE_LOCATION: string; // e.g. "switzerlandnorth"
+  AZURE_RESOURCE_GROUP: string; // shared RG holding all portal VMs
+  AZURE_SUBNET_ID: string; // full ARM resource id of the shared subnet
+  AZURE_NSG_ID?: string; // optional full resource id of the shared NSG (else applied on the subnet)
 
   APP_URL: string;
   GRAFANA_URL?: string; // optional: link shown in the admin Monitoring tab
@@ -29,9 +32,9 @@ export interface Env {
   // Secrets (wrangler secret put ...)
   ENTRA_CLIENT_SECRET: string;
   SESSION_SECRET: string;
-  AWS_ACCESS_KEY_ID: string;
-  AWS_SECRET_ACCESS_KEY: string;
+  AZURE_CLIENT_SECRET: string; // service-principal secret for ARM auth
   EMAILJS_PRIVATE_KEY: string;
+  CRON_SECRET?: string; // shared token for the external cron driver (POST /api/internal/cron)
   GRAFANA_TOKEN?: string; // bearer token for the /api/monitoring/* endpoints (Grafana)
 }
 

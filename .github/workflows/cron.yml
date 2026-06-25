@@ -1,0 +1,31 @@
+name: reconcile
+
+# Pilote externe du réconciliateur. Le compte Cloudflare Free est plafonné à 5
+# cron triggers (déjà tous pris par les autres variantes AWS/Huawei/OpenStack), donc
+# au lieu d'un cron natif Cloudflare, cette Action poste sur /api/internal/cron avec
+# le secret partagé CRON_SECRET. Voir wrangler.jsonc et src/index.ts.
+on:
+  schedule:
+    - cron: '*/5 * * * *' # réconciliation (5 min = minimum GitHub Actions)
+    - cron: '0 19 * * *' # arrêt nocturne (garde-fou coûts)
+  workflow_dispatch: {}
+
+concurrency:
+  group: reconcile
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconcile
+        run: |
+          curl -fsS -m 90 -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://git-vm-portal-azure.thomas-prudhomme.workers.dev/api/internal/cron"
+      - name: Nightly stop (cost guardrail)
+        if: github.event.schedule == '0 19 * * *'
+        run: |
+          curl -fsS -m 90 -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://git-vm-portal-azure.thomas-prudhomme.workers.dev/api/internal/cron?job=stop"

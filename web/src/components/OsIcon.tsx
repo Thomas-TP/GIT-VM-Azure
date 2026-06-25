@@ -5,9 +5,7 @@ import type { OsFamily } from '../types';
 const FAM: Record<OsFamily, { bg: string; glyph: 'terminal' | 'windows' }> = {
   ubuntu: { bg: '#E95420', glyph: 'terminal' },
   debian: { bg: '#A81D33', glyph: 'terminal' },
-  amazon: { bg: '#EC7211', glyph: 'terminal' },
-  rocky: { bg: '#10B981', glyph: 'terminal' },
-  alma: { bg: '#1F557F', glyph: 'terminal' },
+  azurelinux: { bg: '#0078D4', glyph: 'terminal' },
   windows: { bg: '#0078D4', glyph: 'windows' },
 };
 

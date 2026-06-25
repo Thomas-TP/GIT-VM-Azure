@@ -96,9 +96,10 @@ import {
   describeSnapshot,
   deleteSnapshot,
   registerImageFromSnapshot,
+  applyWindowsScript,
   maxCpuOverWindow,
   costExplorer,
-} from './aws';
+} from './azure';
 import {
   notifyAdminsNewRequest,
   notifyUserApproved,
@@ -215,9 +216,11 @@ function windowsHardeningLines(): string[] {
   ];
 }
 
-// Create the SSH key + EC2 instance for a request. Shared by approve + retry.
-// Windows VMs additionally get an Administrator password set via UserData and
-// stored encrypted (no SSH; the user connects over RDP).
+// Create the SSH key + Azure VM for a request. Shared by approve + retry.
+// Windows VMs get their admin password set directly by Azure (osProfile) and
+// stored encrypted (no SSH; the user connects over RDP). In-VM Windows hardening
+// + course tools are applied by the reconciler once the VM is running (see
+// reconcile + buildWindowsSetup) because Windows customData is not auto-executed.
 async function provisionRequest(env: Env, req: any): Promise<string> {
   const perf = PERF[req.preset];
   const os = OS[req.os ?? ''];
@@ -227,43 +230,38 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
   const isWindows = os.connect === 'rdp';
   const isRestore = !!req.restore_snapshot_id;
   const hardeningOn = env.HARDENING !== 'false';
-  let userData: string | undefined;
+  const vmName = `gitvm-req-${req.id}`;
+  // Linux hostname ≤ 63, Windows computerName ≤ 15.
+  const computerName = isWindows ? `gitvm${req.id}`.slice(0, 15) : `gitvm-${req.id}`.slice(0, 63);
+
+  let customData: string | undefined;
   let encPassword: string | null = null;
+  let adminPassword: string | undefined;
+
   if (isWindows) {
-    const password = generateWindowsPassword();
-    // EC2Launch v2 runs this on first boot; single-quoted so the password is literal.
-    const lines = [`net user Administrator '${password}'`];
-    if (hardeningOn && !isRestore) lines.push(...windowsHardeningLines());
-    if (!isRestore) {
-      const win = buildWindowsCourseInstall(req.course);
-      if (win) {
-        lines.push(win);
-        const token = await courseCallbackToken(env.SESSION_SECRET, req.id);
-        lines.push(`try { Invoke-WebRequest -UseBasicParsing -Method POST -Uri "${env.APP_URL}/api/internal/course-done?req=${req.id}&token=${encodeURIComponent(token)}" } catch {}`);
-      }
-    }
-    userData = `<powershell>\n${lines.join('\n')}\n</powershell>\n<persist>false</persist>`;
-    encPassword = await encryptSecret(env.SESSION_SECRET, password);
+    adminPassword = generateWindowsPassword();
+    encPassword = await encryptSecret(env.SESSION_SECRET, adminPassword);
   } else if (!isRestore) {
-    // Linux: hardening (DNS filter + P2P block + hostname lock) + optional course tools.
+    // Linux: cloud-init runs hardening (DNS filter + P2P block + hostname lock)
+    // + optional course tools, then calls back course-done.
     const hard = hardeningOn ? linuxHardeningBody() : '';
     const base = buildCourseUserData(req.course); // full #!/bin/bash script, or ''
     if (base) {
       const token = await courseCallbackToken(env.SESSION_SECRET, req.id);
       const cb = `curl -fsS -X POST "${env.APP_URL}/api/internal/course-done?req=${req.id}&token=${encodeURIComponent(token)}" || true`;
-      userData = `${base.replace(/^(#![^\n]*\n)/, `$1${hard ? hard + '\n' : ''}`)}${cb}\n`;
+      customData = `${base.replace(/^(#![^\n]*\n)/, `$1${hard ? hard + '\n' : ''}`)}${cb}\n`;
     } else if (hard) {
-      userData = `#!/bin/bash\nset +e\n${hard}\n`;
+      customData = `#!/bin/bash\nset +e\n${hard}\n`;
     }
   }
 
-  // Restore: register an AMI from the snapshot and launch from it (disk = snapshot).
-  let amiId = os.ami;
+  // Restore: create a managed disk from the snapshot and attach it as the OS disk.
   let sizeGb = storage.sizeGb;
+  let attachOsDiskId: string | undefined;
   if (isRestore) {
     const snap = await getSnapshot(env, req.restore_snapshot_id, req.user_email);
     if (!snap?.aws_snapshot_id || snap.status !== 'completed') throw new Error('snapshot not ready for restore');
-    amiId = await registerImageFromSnapshot(env, `gitvm-restore-${req.id}`, snap.aws_snapshot_id, snap.root_device ?? '/dev/sda1', snap.architecture ?? 'x86_64');
+    attachOsDiskId = await registerImageFromSnapshot(env, `req${req.id}`, snap.aws_snapshot_id, snap.root_device ?? '', snap.architecture ?? 'x86_64');
     sizeGb = Math.max(storage.sizeGb, snap.size_gb ?? 0);
   }
 
@@ -271,17 +269,37 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
   const encKey = await encryptSecret(env.SESSION_SECRET, kp.privateKey);
   const { instanceId } = await launchInstance(env, {
     requestId: req.id,
-    keyName: kp.keyName,
-    instanceType: perf.instanceType,
-    amiId,
+    vmName,
+    computerName,
+    size: perf.size,
+    image: isRestore ? undefined : os.image,
+    attachOsDiskId,
     sizeGb,
-    userData,
+    diskSku: storage.diskSku || 'StandardSSD_LRS',
+    os: isWindows ? 'windows' : 'linux',
+    adminUsername: os.sshUser,
+    adminPassword,
+    sshPublicKey: isWindows ? undefined : kp.publicKey,
+    customData,
     nameTag: req.name ? `${req.name}.${req.user_email.split('@')[0]}` : null,
-    volumeType: storage.volumeType,
-    iops: storage.iops,
   });
   await createVm(env, req.id, instanceId, kp.keyName, encKey, os.sshUser, os.connect, encPassword);
   return instanceId;
+}
+
+// PowerShell applied to a Windows VM on first activation (via the CustomScript
+// extension): in-VM hardening + course tools + the course-done callback. Returns
+// null when there's nothing to do. Linux does the equivalent through cloud-init.
+async function buildWindowsSetup(env: Env, req: any): Promise<string | null> {
+  const lines: string[] = [];
+  if (env.HARDENING !== 'false') lines.push(...windowsHardeningLines());
+  const win = buildWindowsCourseInstall(req.course);
+  if (win) {
+    lines.push(win);
+    const token = await courseCallbackToken(env.SESSION_SECRET, req.id);
+    lines.push(`try { Invoke-WebRequest -UseBasicParsing -Method POST -Uri "${env.APP_URL}/api/internal/course-done?req=${req.id}&token=${encodeURIComponent(token)}" } catch {}`);
+  }
+  return lines.length ? lines.join('\n') : null;
 }
 
 // Take an EBS snapshot of a VM's root volume (best-effort; used by auto-on-delete).
@@ -364,7 +382,7 @@ app.get('/api/presets', (c) =>
     os: Object.values(OS),
     courses: Object.values(COURSES).map(({ id, label, description, tools }) => ({ id, label, description, tools })),
     storageUsdGbMonth: STORAGE_USD_GB_MONTH,
-    region: c.env.AWS_REGION,
+    region: c.env.AZURE_LOCATION,
     grafanaUrl: c.env.GRAFANA_URL ?? '',
   })
 );
@@ -406,7 +424,7 @@ app.post('/api/requests', apiAuth, async (c) => {
     return c.json({ error: 'rate_limited' }, 429, { 'Retry-After': '3600' });
   }
   const id = await createRequest(
-    c.env, user.email, purpose, perf, storage, os, c.env.AWS_REGION,
+    c.env, user.email, purpose, perf, storage, os, c.env.AZURE_LOCATION,
     start ? start.toISOString() : null, end.toISOString(), course || null
   );
   await audit(c.env, user.email, 'request.create', `req:${id}`, `${perf}/${storage}/${os}${course ? `/${course}` : ''} end:${end.toISOString()}`);
@@ -448,7 +466,7 @@ app.post('/api/requests/batch', apiAuth, async (c) => {
   const ids: number[] = [];
   for (const p of parsed) {
     const id = await createRequest(
-      c.env, user.email, p.purpose, p.perf, p.storage, p.os, c.env.AWS_REGION, p.start, p.end, p.course || null, groupId, groupName, p.restoreSnapshotId, p.name
+      c.env, user.email, p.purpose, p.perf, p.storage, p.os, c.env.AZURE_LOCATION, p.start, p.end, p.course || null, groupId, groupName, p.restoreSnapshotId, p.name
     );
     ids.push(id);
     await audit(c.env, user.email, 'request.create', `req:${id}`, `${p.perf}/${p.storage}/${p.os}${groupId ? ` grp:${groupId}` : ''}`);
@@ -861,6 +879,26 @@ app.post('/api/internal/course-done', async (c) => {
   return c.json({ ok: true });
 });
 
+// External cron driver. The account's 5 Cloudflare cron-trigger slots are full
+// (shared with the other cloud variants), so a scheduled GitHub Action — or any
+// external scheduler — posts here with the shared CRON_SECRET to run the same
+// pipeline as scheduled(). `?job=stop` runs the nightly cost-guardrail stop.
+app.post('/api/internal/cron', async (c) => {
+  const provided = (c.req.header('authorization') ?? '').replace(/^Bearer\s+/i, '') || c.req.query('key') || '';
+  if (!c.env.CRON_SECRET || provided !== c.env.CRON_SECRET) return c.json({ error: 'unauthorized' }, 401);
+  if (c.req.query('job') === 'stop') {
+    await scheduledStop(c.env);
+    return c.json({ ok: true, job: 'stop' });
+  }
+  await reconcile(c.env);
+  await applySchedules(c.env);
+  await retryFailed(c.env);
+  await enforceExpiry(c.env);
+  await enforceIdleStop(c.env);
+  await syncSnapshots(c.env);
+  return c.json({ ok: true, job: 'reconcile' });
+});
+
 // ---- Comments (owner + admins) -----------------------------------------
 app.get('/api/requests/:id/comments', apiAuth, async (c) => {
   const user = c.get('user');
@@ -998,7 +1036,7 @@ app.post('/api/trainer/batch', apiTrainer, async (c) => {
     const owner = emails[i % emails.length]; // round-robin distribution
     const name = `${baseName} ${i + 1}`;
     const id = await createRequest(
-      c.env, owner, purpose, perf, storage, os, c.env.AWS_REGION,
+      c.env, owner, purpose, perf, storage, os, c.env.AZURE_LOCATION,
       start ? start.toISOString() : null, end.toISOString(), course || null, groupId, groupName, null, name
     );
     ids.push(id);
@@ -1209,7 +1247,18 @@ async function reconcile(env: Env): Promise<void> {
           await setRequestStatus(env, row.id, 'active');
           await audit(env, 'system', 'vm.active', `req:${row.id}`, s.publicIp);
           await addNotification(env, row.user_email, 'ready', `/requests/${row.id}`);
-          await notifyUserReady(env, row.user_email, row.id, s.publicIp, row.ssh_user ?? 'ubuntu', row.connect_method === 'rdp' ? 'rdp' : 'ssh');
+          await notifyUserReady(env, row.user_email, row.id, s.publicIp, row.ssh_user ?? 'azureuser', row.connect_method === 'rdp' ? 'rdp' : 'ssh');
+          // Windows: apply in-VM hardening + course tools now the agent is up (once).
+          if (row.connect_method === 'rdp' && (await countAudit(env, `req:${row.id}`, 'vm.win.setup')) === 0) {
+            try {
+              const full = await getRequest(env, row.id);
+              const script = full ? await buildWindowsSetup(env, full) : null;
+              if (script) await applyWindowsScript(env, row.aws_instance_id, script);
+              await audit(env, 'system', 'vm.win.setup', `req:${row.id}`);
+            } catch (e: any) {
+              await audit(env, 'system', 'vm.win.setup.error', `req:${row.id}`, e.message);
+            }
+          }
         } else {
           await updateVm(env, row.id, s.state);
         }

@@ -17,12 +17,16 @@
 
 Plateforme **self-service de provisioning de VM** : un utilisateur se connecte en **SSO Microsoft
 (Entra ID)**, nomme et demande une (ou plusieurs) VM depuis un catalogue, un **admin valide**, la VM
-est **provisionnée automatiquement sur AWS EC2** (clé SSH unique chiffrée, ou mot de passe RDP
-Windows), **durcie** (filtrage réseau), **sauvegardable** (snapshots EBS), **arrêtée si inactive**, et
-**supprimée à sa date de fin**. Le tout tourne sur **Cloudflare Workers**.
+est **provisionnée automatiquement sur Azure Virtual Machines** (clé SSH unique chiffrée, ou mot de
+passe RDP Windows), **durcie** (filtrage réseau NSG), **sauvegardable** (snapshots de disque managé),
+**arrêtée si inactive**, et **supprimée à sa date de fin**. Le tout tourne sur **Cloudflare Workers**.
 
-- **Prod** : <https://git-vm-portal.thomas-prudhomme.workers.dev>
-- **Repo** : <https://github.com/Thomas-TP/GIT-VM>
+> 🔁 **Variante Azure** du portail (l'original cible AWS EC2). Même architecture/base de code ; seule
+> la couche compute change : **Azure Resource Manager** (REST, auth service-principal) au lieu d'EC2.
+> Spécificités Azure (compte « for Students ») en §16.
+
+- **Prod** : <https://git-vm-portal-azure.thomas-prudhomme.workers.dev>
+- **Repo** : <https://github.com/Thomas-TP/GIT-VM-Azure>
 
 ## 2. Règles d'or (NE PAS enfreindre)
 
@@ -48,7 +52,7 @@ Windows), **durcie** (filtrage réseau), **sauvegardable** (snapshots EBS), **ar
 | Base de données | Cloudflare **D1** (SQLite) |
 | Hébergement | Cloudflare Workers Static Assets (SPA) + Worker (API) |
 | Auth | Microsoft **Entra ID** (OIDC authorization-code, in-Worker, sans librairie) |
-| Compute | **AWS EC2** + EBS + CloudWatch (`eu-central-2` / Zurich), signé avec `aws4fetch` |
+| Compute | **Azure Virtual Machines** + Managed Disks + Azure Monitor (`switzerlandnorth`), ARM REST + service-principal (Bearer) |
 | Email | EmailJS (REST) · Erreurs : Sentry (optionnel) · Monitoring : Grafana Cloud (optionnel) |
 | CD | **Cloudflare Workers Builds** = build + migrate D1 + deploy sur `main` |
 
@@ -234,3 +238,35 @@ et [ADR 0006](docs/adr/0006-gestion-des-secrets.md).
 | Contribuer (workflow, conventions) | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Décisions techniques (ADR 0001 → 0009) | [`docs/adr/`](docs/adr/) |
 | Monitoring Grafana | [`monitoring/README.md`](monitoring/README.md) |
+
+> ⚠️ Les docs de `docs/` (ARCHITECTURE, DEPLOYMENT, CONFIGURATION, ADR) décrivent encore l'original
+> **AWS** ; la couche compte tenu des deltas Azure est résumée ici (§16) en attendant leur mise à jour.
+
+## 16. Spécificités Azure (cette variante)
+
+- **Couche compute** : [`src/azure.ts`](src/azure.ts) (client ARM REST, Bearer service-principal)
+  remplace l'ancien `src/aws.ts`. Les **noms de fonctions exportées sont conservés** (createKeyPair,
+  launchInstance, describeInstance, terminate/start/stop/reboot, snapshots, maxCpuOverWindow,
+  costExplorer, listManagedInstances) → le réconciliateur de `index.ts` est **inchangé**. Les états
+  Azure (PowerState/*) sont mappés vers les états AWS attendus (running/stopped/…).
+- **Colonnes D1 inchangées** (`aws_instance_id`, `aws_snapshot_id`) : elles stockent désormais le
+  **nom de ressource Azure** de la VM / le **nom du snapshot** (opaques). Règle « migrations additives ».
+- **Auth** : OAuth2 client-credentials (SP « Claude », Owner sur l'abonnement) → token `management.azure.com`.
+  Secret `AZURE_CLIENT_SECRET` ; vars `AZURE_TENANT_ID/CLIENT_ID/SUBSCRIPTION_ID/LOCATION/RESOURCE_GROUP/SUBNET_ID/NSG_ID`.
+- **Catalogue contraint (compte « Azure for Students »)** : les SKU **B-series, F-series et 1 vCPU
+  sont bloqués** (`NotAvailableForSubscription`) dans toutes les régions → le catalogue est en
+  **Dsv3 / Dasv4 / Esv3** (≥ 2 vCPU). Quota **6 vCPU au total** par région. `presets.ts` = source de vérité.
+- **Limite 3 IP publiques / région** → **3 VM concurrentes max**. `launchInstance` **supprime l'IP+NIC
+  si la création de VM échoue** (anti-fuite, sinon le quota d'IP se sature).
+- **Réconciliateur piloté en externe** : les **5 slots de cron Cloudflare du compte sont déjà pris**
+  (variantes AWS/Huawei/OpenStack). Donc **pas de `triggers.crons`** ici : une **GitHub Action**
+  ([`.github/workflows/cron.yml`](.github/workflows/cron.yml)) **POST `/api/internal/cron`** (Bearer
+  `CRON_SECRET`) toutes les 5 min + arrêt nocturne. Revenir au cron natif = passer en **Workers Paid**
+  puis remettre `"triggers": { "crons": [...] }`. `scheduled()` reste en place (utilisé si cron natif).
+- **Réseau** : RG `git-vm-portal`, VNet/subnet, NSG (entrée 22 + 3389). Reproductible via
+  [`scripts/azure-setup.mjs`](scripts/azure-setup.mjs) ; egress verrouillé par
+  [`scripts/azure-harden-nsg.mjs`](scripts/azure-harden-nsg.mjs) ; URNs vérifiées par `azure-images.mjs`.
+- **Windows** : mot de passe admin posé directement par Azure (`osProfile`, pas de `net user`).
+  Le durcissement in-VM + les outils de cours sont appliqués par le réconciliateur via l'**extension
+  CustomScript** à la 1re activation (le customData Windows n'est pas exécuté automatiquement). Linux =
+  cloud-init (`customData`) comme avant.

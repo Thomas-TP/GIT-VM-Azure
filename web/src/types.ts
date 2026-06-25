@@ -9,7 +9,7 @@ export interface User {
 export interface PerfPreset {
   id: string;
   label: string;
-  instanceType: string;
+  size: string; // Azure VM size, e.g. Standard_B2s
   vcpu: number;
   ramGb: number;
   hourlyUsd: number;
@@ -21,19 +21,24 @@ export interface StoragePreset {
   id: string;
   label: string;
   sizeGb: number;
-  volumeType?: 'gp3' | 'gp2' | 'io1' | 'io2';
-  iops?: number;
+  diskSku?: 'StandardSSD_LRS' | 'Standard_LRS' | 'Premium_LRS';
   usdGbMonth?: number;
   description?: string;
   recommended?: boolean;
   hidden?: boolean;
 }
-export type OsFamily = 'ubuntu' | 'debian' | 'amazon' | 'rocky' | 'alma' | 'windows';
+export type OsFamily = 'ubuntu' | 'debian' | 'azurelinux' | 'windows';
+export interface ImageRef {
+  publisher: string;
+  offer: string;
+  sku: string;
+  version: string;
+}
 export interface OsPreset {
   id: string;
   label: string;
   family: OsFamily;
-  ami: string;
+  image: ImageRef;
   sshUser: string;
   connect: 'ssh' | 'rdp';
   description?: string;
