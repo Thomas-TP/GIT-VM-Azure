@@ -28,7 +28,7 @@ interface VmCfg {
   perf: string;
   storage: string;
   os: string;
-  course: string;
+  courses: string[];
   start: string;
   end: string;
   snapshotId: string;
@@ -181,12 +181,18 @@ function VmConfig({ vm, onChange, catalog, snapshots }: { vm: VmCfg; onChange: (
 
       <Section n={4} title={t('newvm.course')} hint={t('newvm.courseHint')}>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Choice selected={vm.course === ''} onClick={() => onChange({ course: '' })}>
+          <Choice selected={vm.courses.length === 0} onClick={() => onChange({ courses: [] })}>
             <div className="font-medium">{t('newvm.courseNone')}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">{t('newvm.courseNoneHint')}</div>
           </Choice>
           {catalog.courses.map((c) => (
-            <Choice key={c.id} selected={vm.course === c.id} onClick={() => onChange({ course: c.id })}>
+            <Choice
+              key={c.id}
+              selected={vm.courses.includes(c.id)}
+              onClick={() =>
+                onChange({ courses: vm.courses.includes(c.id) ? vm.courses.filter((x) => x !== c.id) : [...vm.courses, c.id] })
+              }
+            >
               <div className="font-medium">{c.label}</div>
               <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{c.description}</div>
               <div className="mt-2 flex flex-wrap gap-1">
@@ -255,7 +261,7 @@ function NewVmForm({ catalog, nav, qc, toast }: { catalog: PresetCatalog; nav: R
     perf: catalog.perf.find((p) => p.recommended)?.id ?? catalog.perf.find((p) => !p.hidden)?.id ?? '',
     storage: catalog.storage.find((s) => s.recommended)?.id ?? catalog.storage.find((s) => !s.hidden && s.sizeGb >= 30)?.id ?? '',
     os: catalog.os.find((o) => o.recommended)?.id ?? catalog.os.find((o) => !o.hidden)?.id ?? '',
-    course: '',
+    courses: [],
     start: toLocalInput(new Date()),
     end: toLocalInput(new Date(Date.now() + 7 * DAY)),
     snapshotId: '',
@@ -305,7 +311,7 @@ function NewVmForm({ catalog, nav, qc, toast }: { catalog: PresetCatalog; nav: R
   const m = useMutation({
     mutationFn: () =>
       api.createBatch(
-        vms.map((v) => ({ name: v.name.trim(), perf: v.perf, storage: v.storage, os: v.os, purpose: purpose.trim(), startDate: v.start ? new Date(v.start).toISOString() : null, endDate: new Date(v.end).toISOString(), course: v.course, snapshotId: v.snapshotId ? Number(v.snapshotId) : null })),
+        vms.map((v) => ({ name: v.name.trim(), perf: v.perf, storage: v.storage, os: v.os, purpose: purpose.trim(), startDate: v.start ? new Date(v.start).toISOString() : null, endDate: new Date(v.end).toISOString(), course: v.courses.join(','), snapshotId: v.snapshotId ? Number(v.snapshotId) : null })),
         needsGroup ? { name: groupName.trim() } : undefined
       ),
     onSuccess: (res) => {

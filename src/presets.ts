@@ -226,12 +226,21 @@ export const COURSES: Record<string, CoursePreset> = {
 
 export const isValidCourse = (id: string) => id === '' || Object.prototype.hasOwnProperty.call(COURSES, id);
 
-// cloud-init customData installing a course's tools (Linux only). undefined if no course.
-export function buildCourseUserData(courseId: string | null | undefined): string | undefined {
-  if (!courseId) return undefined;
-  const c = COURSES[courseId];
-  if (!c) return undefined;
-  return `${COURSE_SCRIPT_HEADER}\n${c.install}\n`;
+// The `course` field holds a comma-separated list of course ids (multi-select).
+// '' = none. Order preserved, blanks dropped.
+export function parseCourses(csv: string | null | undefined): string[] {
+  return (csv ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+export const isValidCourses = (csv: string) =>
+  parseCourses(csv).every((id) => Object.prototype.hasOwnProperty.call(COURSES, id));
+
+// cloud-init customData installing the selected courses' tools (Linux only).
+// undefined if none. Several courses → one header + their install blocks concatenated.
+export function buildCourseUserData(courseCsv: string | null | undefined): string | undefined {
+  const ids = parseCourses(courseCsv).filter((id) => COURSES[id]);
+  if (!ids.length) return undefined;
+  const install = ids.map((id) => COURSES[id].install).join('\n');
+  return `${COURSE_SCRIPT_HEADER}\n${install}\n`;
 }
 
 // Windows (Chocolatey) package mapping per course — best effort equivalents.
@@ -248,10 +257,12 @@ const COURSE_WIN: Record<string, string> = {
   python: 'python',
 };
 
-// PowerShell that installs Chocolatey then the course's tools (Windows). undefined if none.
-export function buildWindowsCourseInstall(courseId: string | null | undefined): string | undefined {
-  const pkgs = courseId ? COURSE_WIN[courseId] : undefined;
-  if (!pkgs) return undefined;
+// PowerShell that installs Chocolatey then the selected courses' tools (Windows).
+// undefined if none. Several courses → union of their package lists (deduped).
+export function buildWindowsCourseInstall(courseCsv: string | null | undefined): string | undefined {
+  const ids = parseCourses(courseCsv).filter((id) => COURSE_WIN[id]);
+  if (!ids.length) return undefined;
+  const pkgs = [...new Set(ids.flatMap((id) => COURSE_WIN[id].split(/\s+/)).filter(Boolean))].join(' ');
   return [
     'Set-ExecutionPolicy Bypass -Scope Process -Force',
     '[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072',

@@ -54,7 +54,7 @@
     "IDLE_STOP_HOURS": "3",
     "HARDENING": "true",
     "SENTRY_DSN": "",
-    "EMAILJS_PUBLIC_KEY": "KIKcUV9eCQouP22hT",
+    "EMAILJS_PUBLIC_KEY": "KlKcUV9eCQouP22hT",
     "EMAILJS_SERVICE_ID": "service_aeuc86a",
     "EMAILJS_TEMPLATE_ID": "template_za3761l"
   },

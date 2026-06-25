@@ -1,9 +1,14 @@
 import i18n from '../i18n';
 
-// SQLite datetime('now') returns UTC "YYYY-MM-DD HH:MM:SS"
+// Two input shapes arrive here:
+//   - SQLite datetime('now') -> "YYYY-MM-DD HH:MM:SS" (UTC, no T, no timezone)
+//   - API ISO dates (start/end) -> "2026-06-25T18:37:00.000Z" (already has a timezone)
+// We must only force-UTC the first kind; the second already carries 'Z'/offset.
+// Both are then rendered in the viewer's local timezone (e.g. Europe/Zurich).
 export function fmtDate(iso?: string | null): string {
   if (!iso) return '—';
-  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
+  const d = new Date(hasTz ? iso : iso.replace(' ', 'T') + 'Z');
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' });
 }
