@@ -294,15 +294,23 @@ async function buildWindowsSetup(env: Env, req: any): Promise<string | null> {
   const hardening = env.HARDENING !== 'false';
   const win = buildWindowsCourseInstall(req.course);
   if (!hardening && !win) return null;
-  // The CustomScript extension marks the whole provisioning as Failed on ANY
-  // non-zero exit, so make every step best-effort and force a clean exit: the
-  // in-VM hardening + course tools are bonuses, they must never break the VM.
+  // The CustomScript extension marks provisioning Failed on ANY non-zero exit.
+  // Hardening runs inline (fast, each line is try/catch'd). The course install is
+  // slow AND Chocolatey's installer can `exit` non-zero (which would short-circuit
+  // our `exit 0` and fail the extension), so it's written to a file and launched
+  // **detached** (Start-Process): the extension returns immediately/succeeds, and
+  // the background job installs the tools + calls back course-done when finished.
   const lines: string[] = ["$ErrorActionPreference='SilentlyContinue'"];
   if (hardening) lines.push(...windowsHardeningLines());
   if (win) {
-    lines.push('try {', win, '} catch {}');
     const token = await courseCallbackToken(env.SESSION_SECRET, req.id);
-    lines.push(`try { Invoke-WebRequest -UseBasicParsing -Method POST -Uri "${env.APP_URL}/api/internal/course-done?req=${req.id}&token=${encodeURIComponent(token)}" } catch {}`);
+    const courseScript =
+      `${win}\n` +
+      `try { Invoke-WebRequest -UseBasicParsing -Method POST -Uri "${env.APP_URL}/api/internal/course-done?req=${req.id}&token=${encodeURIComponent(token)}" } catch {}\n`;
+    const b64 = btoa(unescape(encodeURIComponent(courseScript))); // UTF-8 base64, no quoting headaches
+    lines.push(`$c='${b64}'`);
+    lines.push(`[IO.File]::WriteAllText('C:\\gitvm-course.ps1', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($c)))`);
+    lines.push(`Start-Process powershell -ArgumentList '-ExecutionPolicy','Bypass','-File','C:\\gitvm-course.ps1' -WindowStyle Hidden`);
   }
   lines.push('exit 0');
   return lines.join('\n');
