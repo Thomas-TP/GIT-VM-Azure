@@ -258,11 +258,11 @@ et [ADR 0006](docs/adr/0006-gestion-des-secrets.md).
   **Dsv3 / Dasv4 / Esv3** (≥ 2 vCPU). Quota **6 vCPU au total** par région. `presets.ts` = source de vérité.
 - **Limite 3 IP publiques / région** → **3 VM concurrentes max**. `launchInstance` **supprime l'IP+NIC
   si la création de VM échoue** (anti-fuite, sinon le quota d'IP se sature).
-- **Réconciliateur piloté en externe** : les **5 slots de cron Cloudflare du compte sont déjà pris**
-  (variantes AWS/Huawei/OpenStack). Donc **pas de `triggers.crons`** ici : une **GitHub Action**
-  ([`.github/workflows/cron.yml`](.github/workflows/cron.yml)) **POST `/api/internal/cron`** (Bearer
-  `CRON_SECRET`) toutes les 5 min + arrêt nocturne. Revenir au cron natif = passer en **Workers Paid**
-  puis remettre `"triggers": { "crons": [...] }`. `scheduled()` reste en place (utilisé si cron natif).
+- **Réconciliateur en cron natif** : `wrangler.jsonc` → `triggers.crons` (`*/2 * * * *` + `0 19 * * *`),
+  exécutés par `scheduled()` dans `src/index.ts`. Un endpoint **`POST /api/internal/cron`** (Bearer
+  `CRON_SECRET`, `?job=stop`) reste dispo comme **déclencheur manuel/de secours** — utile sur un compte
+  plafonné à 5 crons (retirer `triggers.crons` et piloter en externe, comme les variantes AWS/Huawei/
+  OpenStack).
 - **Réseau** : RG `git-vm-portal`, VNet/subnet, NSG (entrée 22 + 3389). Reproductible via
   [`scripts/azure-setup.mjs`](scripts/azure-setup.mjs) ; egress verrouillé par
   [`scripts/azure-harden-nsg.mjs`](scripts/azure-harden-nsg.mjs) ; URNs vérifiées par `azure-images.mjs`.

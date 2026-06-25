@@ -19,7 +19,7 @@
     {
       "binding": "DB",
       "database_name": "git_vm_portal_azure",
-      "database_id": "984d6e8a-95f4-42d9-a685-158b044055d6"
+      "database_id": "8b53a9b3-4bb1-492a-b9c9-10d8e7769987"
     }
   ],
 
@@ -43,7 +43,7 @@
     "AZURE_SUBNET_ID": "/subscriptions/2ffd87ba-1361-4458-9e40-6a71af0615d7/resourceGroups/git-vm-portal/providers/Microsoft.Network/virtualNetworks/git-vm-portal-vnet/subnets/default",
     "AZURE_NSG_ID": "/subscriptions/2ffd87ba-1361-4458-9e40-6a71af0615d7/resourceGroups/git-vm-portal/providers/Microsoft.Network/networkSecurityGroups/git-vm-portal-nsg",
 
-    "APP_URL": "https://git-vm-portal-azure.thomas-prudhomme.workers.dev",
+    "APP_URL": "https://git-vm-portal-azure.satom-openstack.workers.dev",
     "GRAFANA_URL": "",
     "MAIL_ENABLED": "true",
     "SCHEDULED_STOP": "true",
@@ -54,12 +54,11 @@
     "EMAILJS_PUBLIC_KEY": "KIKcUV9eCQouP22hT",
     "EMAILJS_SERVICE_ID": "service_aeuc86a",
     "EMAILJS_TEMPLATE_ID": "template_za3761l"
-  }
+  },
 
-  // ⚠️ Pas de "triggers.crons" : le compte Cloudflare Free est plafonné à 5 cron
-  // triggers et ils sont déjà tous pris par les autres variantes (AWS/Huawei/
-  // OpenStack). Le réconciliateur est piloté par un déclencheur externe qui POST
-  // sur /api/internal/cron (voir .github/workflows/cron.yml + secret CRON_SECRET).
-  // Pour revenir au cron natif : passer le compte en Workers Paid puis remettre
-  //   "triggers": { "crons": ["*/2 * * * *", "0 19 * * *"] }
+  "triggers": {
+    // toutes les 2 min : réconciliation Azure↔DB (provisioning→active, drift, plannings,
+    // retries, échéances, idle-stop, snapshots). 19:00 UTC : extinction nocturne.
+    "crons": ["*/2 * * * *", "0 19 * * *"]
+  }
 }

@@ -96,24 +96,21 @@ Déjà fait pour cet environnement, documenté pour reproductibilité :
 7. **Cloudflare Build** : connecter le repo, renseigner build/deploy commands (§3).
 8. **Cron driver** : pousser `.github/workflows/cron.yml` + secret GitHub `CRON_SECRET` (= secret Worker).
 
-## 9. Réconciliateur — pilote cron externe ⚠️
+## 9. Réconciliateur — cron natif Cloudflare
 
-Le compte Cloudflare (plan **Free**) est plafonné à **5 cron triggers**, déjà tous pris par les autres
-variantes (AWS / Huawei / OpenStack). **Il n'y a donc PAS de `triggers.crons`** dans `wrangler.jsonc`.
+Le Worker tourne sur un compte **sans contrainte de cron** : `wrangler.jsonc` → `triggers.crons`
+déclare les déclencheurs, exécutés par `scheduled()` dans `src/index.ts`.
 
-À la place, une **GitHub Action** (`.github/workflows/cron.yml`) appelle l'endpoint du Worker :
+| Cron | Action |
+|---|---|
+| `*/2 * * * *` | `reconcile` + `applySchedules` + `retryFailed` + `enforceExpiry` + `enforceIdleStop` + `syncSnapshots` |
+| `0 19 * * *` (UTC) | `scheduledStop` (extinction des VM running, garde-fou coûts) |
 
-| Déclencheur GitHub Actions | Appel | Action |
-|---|---|---|
-| `*/5 * * * *` | `POST /api/internal/cron` (Bearer `CRON_SECRET`) | réconciliation + plannings + retries + échéances + idle-stop + snapshots |
-| `0 19 * * *` | `POST /api/internal/cron?job=stop` | extinction nocturne (garde-fou coûts) |
-
-Le handler `scheduled()` reste présent dans `src/index.ts` : si un jour le compte passe en **Workers
-Paid**, il suffit de remettre `"triggers": { "crons": ["*/2 * * * *", "0 19 * * *"] }` dans
-`wrangler.jsonc` pour repasser au cron natif (cadence 2 min) et désactiver la GitHub Action.
-
-> Alternative plus réactive : un service cron externe (cron-job.org…) appelant le même endpoint toutes
-> les 1–2 min (GitHub Actions a un minimum de 5 min et peut prendre du retard).
+> 🔁 Un endpoint **`POST /api/internal/cron`** (Bearer `CRON_SECRET`, `?job=stop` pour l'extinction)
+> reste disponible comme **déclencheur manuel / de secours**. Utile si on héberge un jour sur un compte
+> **plafonné à 5 cron triggers** : retirer alors `triggers.crons` et piloter cet endpoint depuis un
+> cron externe (GitHub Action, cron-job.org…). C'est la configuration qu'utilisaient les variantes
+> AWS/Huawei/OpenStack.
 
 ## 10. Domaine
 
