@@ -1,8 +1,8 @@
-# Configuration & secrets — GIT VM Portal
+# Configuration & secrets — GIT VM Portal (Azure)
 
 > Toutes les variables, les secrets, les permissions et les procédures de **publication / rotation
-> des credentials**. Référence transverse de sécurité — voir [ADR 0006](adr/0006-gestion-des-secrets.md).
-> Dernière mise à jour : 2026-06-19.
+> des credentials**. Référence transverse de sécurité — voir [ADR 0006](adr/0006-gestion-des-secrets.md)
+> et [ADR 0010](adr/0010-migration-azure.md). Dernière mise à jour : 2026-06-25.
 
 ---
 
@@ -12,9 +12,9 @@
 - **Secrets** (sensibles) → **Cloudflare Wrangler Secrets** (`wrangler secret put`). **Jamais commités.**
 - **En local** → fichier `.dev.vars` (ignoré par Git) pour vars + secrets de dev.
 
-> 🚫 **Aucun secret en clair dans le repo, les logs, les commits ou le chat.** Les scripts AWS lisent
-> les creds depuis l'environnement, jamais en dur. Si on te transmet une clé, utilise-la en local et
-> **fais-la roter ensuite**.
+> 🚫 **Aucun secret en clair dans le repo, les logs, les commits ou le chat.** Les scripts Azure lisent
+> les creds depuis l'environnement, jamais en dur. Si on te transmet un secret, utilise-le en local et
+> **fais-le roter ensuite**.
 
 ## 2. Variables publiques (`wrangler.jsonc` → `vars`)
 
@@ -22,19 +22,23 @@
 |---|---|---|
 | `ALLOWED_EMAIL_DOMAINS` | `satom.ch,git.swiss` | Domaines email autorisés à se connecter |
 | `ADMIN_EMAILS` | `thomas.prudhomme@satom.ch,…` | Admins « bootstrap » (toujours admin) |
-| `ENTRA_TENANT_ID` | `33a7a298-…` | Tenant Entra ID |
-| `ENTRA_CLIENT_ID` | `0bfcdbd6-…` | App registration Entra |
-| `AWS_REGION` | `eu-central-2` | Région EC2 (Zurich) |
-| `AWS_SUBNET_ID` | `subnet-0247cdf4…` | Subnet des VM |
-| `AWS_SECURITY_GROUP_ID` | `sg-0f842f10…` | Security group partagé (SSH 22, RDP 3389) |
-| `AWS_AMI_ID` | `ami-0fd7f34c…` | AMI legacy par défaut (les OS du catalogue sont dans `src/presets.ts`) |
-| `AWS_KEY_NAME` | *(vide)* | Réservé ; les clés sont créées par VM |
-| `APP_URL` | `https://git-vm-portal.…workers.dev` | URL publique (redirects, emails) |
+| `ENTRA_TENANT_ID` | `33a7a298-…` | Tenant Entra ID (login SSO) |
+| `ENTRA_CLIENT_ID` | `09d86c63-…` | App registration Entra « GIT-VM-Azure » (login) |
+| `AZURE_TENANT_ID` | `33a7a298-…` | Tenant du service-principal compute |
+| `AZURE_CLIENT_ID` | `50f50b56-…` | App ID du service-principal (« Claude ») |
+| `AZURE_SUBSCRIPTION_ID` | `2ffd87ba-…` | Abonnement Azure cible |
+| `AZURE_LOCATION` | `switzerlandnorth` | Région des VM |
+| `AZURE_RESOURCE_GROUP` | `git-vm-portal` | Resource group partagé des VM |
+| `AZURE_SUBNET_ID` | `/subscriptions/…/subnets/default` | **Resource id complet** du subnet partagé |
+| `AZURE_NSG_ID` | `/subscriptions/…/networkSecurityGroups/git-vm-portal-nsg` | **Resource id complet** du NSG (SSH 22, RDP 3389) |
+| `APP_URL` | `https://git-vm-portal-azure.…workers.dev` | URL publique (redirects, callbacks cours) |
 | `GRAFANA_URL` | *(vide)* | Lien Grafana affiché dans l'onglet Monitoring (admin) |
 | `MAIL_ENABLED` | `true` | Active l'envoi EmailJS |
-| `SCHEDULED_STOP` | `true` | Active l'extinction nocturne (cron 19 h UTC) |
+| `SCHEDULED_STOP` | `true` | Active l'extinction nocturne (19 h, via le pilote cron) |
+| `IDLE_STOP` / `IDLE_STOP_HOURS` | `true` / `3` | Arrêt sur inactivité (CPU Azure Monitor) |
+| `HARDENING` | `true` | Durcissement in-VM (DNS filtré, blocage P2P, hostname) |
 | `SENTRY_DSN` | *(vide)* | DSN Sentry (optionnel) |
-| `EMAILJS_PUBLIC_KEY` | `KlKcUV9e…` | Clé publique EmailJS |
+| `EMAILJS_PUBLIC_KEY` | `KIKcUV9e…` | Clé publique EmailJS |
 | `EMAILJS_SERVICE_ID` | `service_aeuc86a` | Service EmailJS |
 | `EMAILJS_TEMPLATE_ID` | `template_za3761l` | Template EmailJS |
 
@@ -43,22 +47,19 @@
 | Secret | Source | Rôle |
 |---|---|---|
 | `SESSION_SECRET` | aléatoire fort (≥ 32 octets) | Signe les JWT de session **ET** dérive la clé AES-GCM de chiffrement |
-| `ENTRA_CLIENT_SECRET` | Entra → Certificates & secrets | Échange du code OIDC contre l'id_token |
-| `AWS_ACCESS_KEY_ID` | IAM user dédié | Auth API EC2 |
-| `AWS_SECRET_ACCESS_KEY` | IAM user dédié | Auth API EC2 |
+| `ENTRA_CLIENT_SECRET` | Entra → app GIT-VM-Azure → Certificates & secrets | Échange du code OIDC contre l'id_token |
+| `AZURE_CLIENT_SECRET` | App reg. du service-principal → Certificates & secrets | Auth ARM (client-credentials → Bearer) |
 | `EMAILJS_PRIVATE_KEY` | EmailJS → Account → API Keys | Auth serveur EmailJS |
-| `GRAFANA_TOKEN` | aléatoire fort (optionnel) | Bearer des endpoints `/api/monitoring/*` (Grafana, cf. [monitoring/](../monitoring/README.md)). Non défini → endpoints `503`. |
+| `CRON_SECRET` | aléatoire fort | Bearer du pilote externe `POST /api/internal/cron` (cf. [DEPLOYMENT.md](DEPLOYMENT.md) §9) |
+| `GRAFANA_TOKEN` | aléatoire fort (optionnel) | Bearer des endpoints `/api/monitoring/*`. Non défini → endpoints `503`. |
 
 ```bash
-# Définir / mettre à jour un secret (prod)
 npx wrangler secret put SESSION_SECRET
 npx wrangler secret put ENTRA_CLIENT_SECRET
-npx wrangler secret put AWS_ACCESS_KEY_ID
-npx wrangler secret put AWS_SECRET_ACCESS_KEY
+npx wrangler secret put AZURE_CLIENT_SECRET
 npx wrangler secret put EMAILJS_PRIVATE_KEY
-
-# Lister les secrets définis (noms uniquement)
-npx wrangler secret list
+npx wrangler secret put CRON_SECRET
+npx wrangler secret list      # noms uniquement
 ```
 
 > ⚠️ `SESSION_SECRET` est **double usage** : sa rotation invalide toutes les sessions **et** rend
@@ -71,99 +72,79 @@ Fichier `.dev.vars` à la racine (déjà dans `.gitignore`) :
 ```ini
 SESSION_SECRET="dev-only-change-me-0123456789abcdef"
 ENTRA_CLIENT_SECRET="..."
-AWS_ACCESS_KEY_ID="..."
-AWS_SECRET_ACCESS_KEY="..."
+AZURE_CLIENT_SECRET="..."
 EMAILJS_PRIVATE_KEY="..."
+CRON_SECRET="dev-cron"
 ```
 
-`wrangler dev` charge `.dev.vars` automatiquement. Pour les scripts `scripts/*.mjs`, exporter les
-variables AWS dans le shell (PowerShell) :
+`wrangler dev` charge `.dev.vars` automatiquement. Pour les scripts `scripts/azure-*.mjs`, exporter les
+variables Azure dans le shell (PowerShell) :
 
 ```powershell
-$env:AWS_ACCESS_KEY_ID='...'; $env:AWS_SECRET_ACCESS_KEY='...'
-$env:AWS_REGION='eu-central-2'; $env:AWS_SECURITY_GROUP_ID='sg-0f842f10ca3c7b2d1'
-node scripts/aws-amis.mjs
+$env:AZURE_TENANT_ID='33a7a298-…'; $env:AZURE_CLIENT_ID='50f50b56-…'
+$env:AZURE_CLIENT_SECRET='…'; $env:AZURE_SUBSCRIPTION_ID='2ffd87ba-…'
+$env:AZURE_LOCATION='switzerlandnorth'; $env:AZURE_RESOURCE_GROUP='git-vm-portal'
+node scripts/azure-images.mjs
 ```
 
-## 5. AWS IAM
+## 5. Azure — service principal & RBAC
 
-**Compte** : `437659978697` · **Région** : `eu-central-2`.
+**Abonnement** : `2ffd87ba-…` (« Azure for Students ») · **Région** : `switzerlandnorth`.
 
-### 5.1 Permissions du Worker (runtime)
+### 5.1 Identité & droits du Worker (runtime)
 
-Politique minimale pour le user IAM dont les clés sont dans les secrets Cloudflare :
+Le Worker s'authentifie en **OAuth2 client-credentials** (service principal « Claude ») et obtient un
+token Bearer pour `https://management.azure.com`. Le SP doit avoir le rôle **Contributor** (ou Owner)
+sur l'abonnement (ou a minima sur le resource group `git-vm-portal`). Providers à enregistrer une fois
+(fait par `scripts/azure-setup.mjs`) : `Microsoft.Compute`, `Microsoft.Network`, `microsoft.insights`
+(métriques), `Microsoft.CostManagement` (dashboard coûts).
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": [
-      "ec2:RunInstances",
-      "ec2:DescribeInstances",
-      "ec2:DescribeImages",
-      "ec2:TerminateInstances",
-      "ec2:StartInstances",
-      "ec2:StopInstances",
-      "ec2:RebootInstances",
-      "ec2:CreateKeyPair",
-      "ec2:DeleteKeyPair",
-      "ec2:CreateTags"
-    ],
-    "Resource": "*"
-  }]
-}
-```
+> ⚠️ **Graph ≠ ARM** : être Owner sur l'abonnement ne donne **pas** le droit de modifier une app
+> registration Entra (redirect URI…). Cela nécessite une permission **Microsoft Graph**
+> (`Application.ReadWrite`), à accorder séparément — sinon la config Entra se fait à la main au portail.
 
-### 5.2 Permissions des scripts d'admin (one-off)
+### 5.2 Contraintes « Azure for Students » (importantes)
 
-`scripts/aws-amis.mjs` et `scripts/aws-open-rdp.mjs` nécessitent en plus :
+- **SKU bloqués** (`NotAvailableForSubscription`, toutes régions) : B-series, F-series, 1 vCPU. Le
+  catalogue (`src/presets.ts`) n'utilise donc que **Dsv3 / Dasv4 / Esv3** (≥ 2 vCPU).
+- **Quota 6 vCPU** au total par région. **Max 3 IP publiques** par région → **3 VM concurrentes**.
+- `launchInstance` supprime l'IP+NIC si la création de VM échoue (anti-fuite du quota d'IP).
 
-```json
-{ "Effect": "Allow",
-  "Action": ["ec2:DescribeSecurityGroups", "ec2:AuthorizeSecurityGroupIngress"],
-  "Resource": "*" }
-```
+## 6. Microsoft Entra ID (login SSO)
 
-> Bonne pratique : un IAM user **distinct** pour ces scripts (creds locaux, jamais dans Cloudflare),
-> séparé du user runtime du Worker.
-
-## 6. Microsoft Entra ID
-
-App registration (Azure Portal → Entra ID → App registrations) :
+App registration « GIT-VM-Azure » (Azure Portal → Entra ID → App registrations) :
 
 1. **Redirect URI** (type *Web*) : `https://<APP_URL>/auth/callback`
-   (prod : `https://git-vm-portal.thomas-prudhomme.workers.dev/auth/callback`).
+   (prod : `https://git-vm-portal-azure.thomas-prudhomme.workers.dev/auth/callback`).
 2. **Client ID** → `ENTRA_CLIENT_ID` (var). **Tenant ID** → `ENTRA_TENANT_ID` (var).
 3. **Client secret** (Certificates & secrets) → `ENTRA_CLIENT_SECRET` (secret).
 4. **Permissions** : `openid`, `profile`, `email` (scopes OIDC standard).
 5. Les utilisateurs doivent appartenir à un domaine de `ALLOWED_EMAIL_DOMAINS`.
 
 > 90 % des pannes de login viennent d'ici (redirect URI / secret / domaine), pas du code.
-> Checklist : [`analyse/04-diagnostic-login.md`](analyse/04-diagnostic-login.md).
 
 ## 7. EmailJS
 
 Service transactionnel (REST, côté serveur). Template à 4 variables : `to_email`, `subject`,
-`title`, `message` (texte avec `white-space: pre-line`). IDs publics dans `vars`, clé privée en secret.
-Mettre `MAIL_ENABLED=false` pour désactiver proprement (les envois sont alors loggés `mail.skipped`).
+`title`, `message`. IDs publics dans `vars`, clé privée en secret. `MAIL_ENABLED=false` désactive
+proprement (envois loggés `mail.skipped`).
 
 ## 8. Rotation des credentials
 
 | Credential | Procédure |
 |---|---|
-| **Clé AWS** | IAM → créer une nouvelle paire → `wrangler secret put AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` → re-déployer → **supprimer** l'ancienne clé. |
+| **Secret SP Azure** | App reg. → nouveau secret → `wrangler secret put AZURE_CLIENT_SECRET` → re-déployer → supprimer l'ancien. |
 | **Secret Entra** | Entra → nouveau secret → `wrangler secret put ENTRA_CLIENT_SECRET` → re-déployer → supprimer l'ancien. |
 | **EmailJS** | Régénérer la clé privée → `wrangler secret put EMAILJS_PRIVATE_KEY`. |
-| **`SESSION_SECRET`** | Générer une nouvelle valeur → `wrangler secret put` → **déconnecte tout le monde** et rend les clés/mots de passe stockés illisibles (à re-télécharger / re-provisionner). À éviter sauf compromission. |
+| **`CRON_SECRET`** | Nouvelle valeur → `wrangler secret put CRON_SECRET` **ET** secret GitHub `CRON_SECRET` (les deux doivent coïncider). |
+| **`SESSION_SECRET`** | Nouvelle valeur → `wrangler secret put` → **déconnecte tout le monde** et rend les clés/mots de passe stockés illisibles. À éviter sauf compromission. |
 
-> 🔁 **Après toute fuite** (clé partagée en clair, commit accidentel) : **révoquer immédiatement**,
-> roter, puis purger l'historique Git si nécessaire (`git filter-repo`).
+> 🔁 **Après toute fuite** : **révoquer immédiatement**, roter, puis purger l'historique Git si besoin.
 
 ## 9. Checklist « nouveau credential publié »
 
 - [ ] La valeur n'apparaît **dans aucun fichier commité** (`git grep` la valeur → rien).
 - [ ] Variable publique → `wrangler.jsonc` `vars` ; sensible → `wrangler secret put`.
 - [ ] `.dev.vars` à jour pour le dev local (et bien ignoré par Git).
-- [ ] Re-déploiement effectué (merge `main`) et vérifié (`/api/presets`, `/healthz`).
+- [ ] Re-déploiement effectué et vérifié (`/api/presets`, `/healthz`).
 - [ ] Ancienne valeur révoquée si rotation.

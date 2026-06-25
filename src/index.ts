@@ -291,15 +291,21 @@ async function provisionRequest(env: Env, req: any): Promise<string> {
 // extension): in-VM hardening + course tools + the course-done callback. Returns
 // null when there's nothing to do. Linux does the equivalent through cloud-init.
 async function buildWindowsSetup(env: Env, req: any): Promise<string | null> {
-  const lines: string[] = [];
-  if (env.HARDENING !== 'false') lines.push(...windowsHardeningLines());
+  const hardening = env.HARDENING !== 'false';
   const win = buildWindowsCourseInstall(req.course);
+  if (!hardening && !win) return null;
+  // The CustomScript extension marks the whole provisioning as Failed on ANY
+  // non-zero exit, so make every step best-effort and force a clean exit: the
+  // in-VM hardening + course tools are bonuses, they must never break the VM.
+  const lines: string[] = ["$ErrorActionPreference='SilentlyContinue'"];
+  if (hardening) lines.push(...windowsHardeningLines());
   if (win) {
-    lines.push(win);
+    lines.push('try {', win, '} catch {}');
     const token = await courseCallbackToken(env.SESSION_SECRET, req.id);
     lines.push(`try { Invoke-WebRequest -UseBasicParsing -Method POST -Uri "${env.APP_URL}/api/internal/course-done?req=${req.id}&token=${encodeURIComponent(token)}" } catch {}`);
   }
-  return lines.length ? lines.join('\n') : null;
+  lines.push('exit 0');
+  return lines.join('\n');
 }
 
 // Take an EBS snapshot of a VM's root volume (best-effort; used by auto-on-delete).

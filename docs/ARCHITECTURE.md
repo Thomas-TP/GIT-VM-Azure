@@ -9,8 +9,9 @@
 ## 1. Vue d'ensemble
 
 Une seule unité déployable (un **Cloudflare Worker**) sert à la fois la **SPA React** (static assets)
-et l'**API JSON** (Hono), et exécute des **tâches cron**. L'état désiré vit dans **D1** ; le réel vit
-dans **AWS EC2** ; une cron réconcilie les deux en continu.
+et l'**API JSON** (Hono), et exécute le **réconciliateur**. L'état désiré vit dans **D1** ; le réel vit
+dans **Azure Virtual Machines** ; le réconciliateur réconcilie les deux en continu (piloté par une
+GitHub Action qui appelle `/api/internal/cron` — voir [DEPLOYMENT.md](DEPLOYMENT.md) §9).
 
 ```mermaid
 flowchart TB
@@ -25,11 +26,12 @@ flowchart TB
     end
 
     W -->|OIDC| E[Microsoft Entra ID]
-    W -->|aws4fetch / EC2 API| AWS[AWS EC2<br/>eu-central-2]
+    W -->|ARM REST / Bearer SP| AZ[Azure VMs<br/>switzerlandnorth]
     W -->|REST| M[EmailJS]
     W -.->|erreurs| S[Sentry optionnel]
 
-    W -. cron */2 min .-> AWS
+    G[GitHub Action */5 min] -->|POST /api/internal/cron| W
+    W -. réconciliation .-> AZ
 ```
 
 ## 2. Composants
@@ -40,7 +42,7 @@ flowchart TB
 | **OIDC** | Flux authorization-code Entra ID (sans librairie) | `src/oidc.ts` |
 | **Crypto** | JWT HMAC (sessions), AES-GCM (clés SSH + mots de passe Windows) | `src/crypto.ts` |
 | **DB** | Accès D1 (requests, vms, users, audit, comments, metrics) | `src/db.ts` |
-| **AWS** | Client EC2 minimal (query protocol, réponses XML parsées par regex) | `src/aws.ts` |
+| **Azure** | Client ARM REST (auth service-principal, JSON) — VM, disques, snapshots, métriques, coûts | `src/azure.ts` |
 | **Catalogue** | PERF × STORAGE × OS + coûts (source de vérité) | `src/presets.ts` |
 | **Email** | Notifications EmailJS | `src/email.ts` |
 | **SPA** | UI React (auth, Mes VM, Créer une VM, Détail, Admin) | `web/src/` |
@@ -75,10 +77,10 @@ Diagnostic des pannes de login : [`analyse/04-diagnostic-login.md`](analyse/04-d
 stateDiagram-v2
     [*] --> pending: POST /api/requests
     pending --> rejected: admin refuse
-    pending --> provisioning: admin approuve<br/>(clé SSH + RunInstances)
-    provisioning --> active: cron — running + IP publique<br/>(email « prête »)
-    provisioning --> failed: erreur AWS
-    failed --> provisioning: retry cron (max 3)
+    pending --> provisioning: admin approuve<br/>(clé SSH + PUT VM Azure)
+    provisioning --> active: réconciliateur — running + IP publique<br/>(email « prête »)
+    provisioning --> failed: erreur Azure
+    failed --> provisioning: retry (max 3)
     active --> terminated: end_date — auto-suppression<br/>(terminate + expired_at) · ADR 0008
     active --> terminated: terminate (user/admin)
     provisioning --> terminated: drift (instance disparue)
@@ -92,12 +94,14 @@ par la **cron** quand l'instance tourne avec une IP. À l'échéance, la VM est 
 
 ## 5. Le réconciliateur (cœur de la robustesse)
 
-**DB = état désiré.** Deux déclencheurs cron (`wrangler.jsonc` → `triggers.crons`) :
+**DB = état désiré.** Le pipeline (`src/index.ts`) est **piloté en externe** par une GitHub Action —
+les 5 slots de cron Cloudflare du compte sont pris par les autres variantes (voir
+[DEPLOYMENT.md](DEPLOYMENT.md) §9). Le handler `scheduled()` reste prêt pour un retour au cron natif.
 
-| Cron | Fonction | Effet |
+| Appel (GitHub Action) | Fonction | Effet |
 |---|---|---|
-| `*/2 * * * *` | `reconcile` + `applySchedules` + `retryFailed` + `enforceExpiry` | sync AWS↔DB, drift, plannings, retries, échéances |
-| `0 19 * * *` | `scheduledStop` | arrête les VM running sans planning (garde-fou coûts) |
+| `POST /api/internal/cron` (5 min) | `reconcile` + `applySchedules` + `retryFailed` + `enforceExpiry` + `enforceIdleStop` + `syncSnapshots` | sync Azure↔DB, drift, plannings, retries, échéances, idle-stop, snapshots |
+| `…?job=stop` (19 h) | `scheduledStop` | arrête les VM running sans planning (garde-fou coûts) |
 
 - **`reconcile`** : `provisioning → active` (running + IP, + email), drift (instance disparue →
   `terminated`), sync de l'état running/stopped + IP.
@@ -157,25 +161,33 @@ erDiagram
 
 Migrations **100 % additives** (`ADD COLUMN`) pour éviter toute reconstruction de table sur D1 remote.
 
+> 🔁 **Note Azure** : les colonnes `aws_instance_id` et `aws_snapshot_id` sont **conservées** (règle
+> additive) mais stockent désormais des identifiants Azure opaques — respectivement le **nom de
+> ressource de la VM** (`gitvm-req-<id>`) et le **nom du snapshot**.
+
 ## 7. Catalogue & provisioning
 
-Une demande compose **PERF** (type d'instance) × **STORAGE** (disque gp3) × **OS** (AMI). Les AMIs
-sont des **IDs `eu-central-2` concrets et vérifiés** (`scripts/aws-amis.mjs`).
+Une demande compose **PERF** (taille de VM Azure) × **STORAGE** (disque managé) × **OS** (image
+Marketplace). Les images sont des **URN vérifiées** (`scripts/azure-images.mjs`). Le provisioning crée
+**IP publique + NIC + VM** (NIC/IP/disque en `deleteOption: Delete` → la suppression de la VM cascade).
 
 ```mermaid
 flowchart LR
-    R[Demande approuvée] --> K[CreateKeyPair ed25519]
+    R[Demande approuvée] --> K[sshPublicKeys/generateKeyPair]
     K --> O{OS.connect ?}
-    O -->|ssh Linux| L[RunInstances<br/>clé SSH]
-    O -->|rdp Windows| Wn[Génère mot de passe<br/>UserData net user<br/>RunInstances]
+    O -->|ssh Linux| L[PUT VM<br/>clé publique + cloud-init]
+    O -->|rdp Windows| Wn[Génère mot de passe<br/>osProfile.adminPassword<br/>PUT VM]
     L --> V[(vms : ssh)]
     Wn --> Vp[(vms : rdp + admin_password chiffré)]
 ```
 
-- **Linux** → SSH avec la clé privée téléchargeable (chiffrée au repos).
-- **Windows** → RDP. Mot de passe Administrateur **généré**, injecté via **UserData (EC2Launch)**,
-  **chiffré AES-GCM**, révélé au propriétaire via `GET /api/requests/:id/password` (audité).
-  Nécessite le **port 3389** ouvert sur le SG. Voir [ADR 0007](adr/0007-catalogue-os-et-windows-rdp.md).
+- **Linux** → SSH avec la clé privée téléchargeable (chiffrée au repos) ; outils de cours +
+  durcissement via **cloud-init** (`customData`).
+- **Windows** → RDP. Mot de passe **généré**, posé directement par Azure (`osProfile.adminPassword`),
+  **chiffré AES-GCM**, révélé au propriétaire via `GET /api/requests/:id/password` (audité). Le
+  durcissement in-VM + outils de cours sont appliqués par le réconciliateur via l'**extension
+  CustomScript** à la 1ʳᵉ activation. Nécessite le **port 3389** ouvert sur le NSG. Voir
+  [ADR 0007](adr/0007-catalogue-os-et-windows-rdp.md).
 
 ## 8. Sécurité
 
@@ -189,15 +201,16 @@ flowchart LR
 | Traçabilité | `audit_log` sur login, demande, décision, provisioning, téléchargement clé, révélation mot de passe |
 | Rate limiting | Max 5 demandes / heure / utilisateur |
 
-## 9. Réseau AWS
+## 9. Réseau Azure
 
-VPC unique, **1 subnet** (`subnet-0247cdf408e6fb4d1`) + **1 security group** partagé
-(`sg-0f842f10ca3c7b2d1`, `eu-central-2`). Ingress : **tcp/22** (SSH) et **tcp/3389** (RDP Windows,
-ouvert via `scripts/aws-open-rdp.mjs`). IP publique auto-assignée par instance.
+Resource group `git-vm-portal`, **1 VNet** (`git-vm-portal-vnet`, 10.10.0.0/16) + **1 subnet**
+(`default`) + **1 NSG** partagé (`git-vm-portal-nsg`, `switzerlandnorth`). Ingress : **tcp/22** (SSH)
+et **tcp/3389** (RDP Windows). IP publique Standard par VM (`scripts/azure-setup.mjs`). Egress
+verrouillable en default-deny + allowlist via `scripts/azure-harden-nsg.mjs`.
 
-> ⚠️ **Limite connue** : pas d'isolation réseau par classe/cours (un seul subnet + SG). 3389 est
-> ouvert en `0.0.0.0/0` pour la démo — **à restreindre** à une plage IP en production. Voir
-> [`analyse/03-ecarts-et-dette-technique.md`](analyse/03-ecarts-et-dette-technique.md).
+> ⚠️ **Limites connues** : pas d'isolation réseau par classe/cours (un seul subnet + NSG) ; 22/3389
+> ouverts en `Internet` pour la démo (**à restreindre** en prod). Le compte « Azure for Students »
+> plafonne à **3 IP publiques / région → 3 VM concurrentes** et **6 vCPU**.
 
 ## 10. Surface API
 
