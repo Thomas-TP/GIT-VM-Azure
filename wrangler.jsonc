@@ -1,6 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "git-vm-portal-azure",
+  // Compte Cloudflare cible (satom.ch). Épinglé car le token a accès à plusieurs
+  // comptes : sans ça, wrangler peut viser le mauvais compte par défaut.
+  "account_id": "7a91996559b58aa01afe79940142e9b8",
   "main": "src/index.ts",
   "compatibility_date": "2025-06-01",
   "observability": { "enabled": true },
